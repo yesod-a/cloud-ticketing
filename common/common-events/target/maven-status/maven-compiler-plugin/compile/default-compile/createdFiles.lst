@@ -1,0 +1,2 @@
+com\cloudticket\common\events\EventEnvelope.class
+com\cloudticket\common\events\EventTypes.class
