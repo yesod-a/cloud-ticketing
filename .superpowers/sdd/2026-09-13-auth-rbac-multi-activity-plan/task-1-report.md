@@ -35,4 +35,5 @@ Verification command: `mvn -pl services/auth-service -am test`
 
 Result: `BUILD SUCCESS`; auth-service tests: 2 run, 0 failures, 0 errors.
 
-Fix commit: pending (created after this report update).
+Fix commit: `54676da25b72b7d438e3ba5820e993c589b4910b` fix: harden auth repository and audit schema.
+
