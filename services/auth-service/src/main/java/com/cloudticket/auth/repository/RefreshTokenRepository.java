@@ -11,7 +11,12 @@ import org.springframework.data.repository.CrudRepository;
 public interface RefreshTokenRepository extends CrudRepository<RefreshTokenEntity, UUID> {
     @Query("SELECT * FROM auth_refresh_token WHERE token_hash = :tokenHash AND revoked_at IS NULL AND expires_at > CURRENT_TIMESTAMP LIMIT 1")
     Optional<RefreshTokenEntity> findActiveByHash(String tokenHash);
+    @Query("SELECT * FROM auth_refresh_token WHERE token_hash = :tokenHash LIMIT 1")
+    Optional<RefreshTokenEntity> findByHash(String tokenHash);
     @Query("UPDATE auth_refresh_token SET revoked_at = :revokedAt WHERE id = :id")
     @Modifying
     boolean revoke(UUID id, Instant revokedAt);
+    @Query("UPDATE auth_refresh_token SET revoked_at = :revokedAt WHERE family_id = :familyId AND revoked_at IS NULL")
+    @Modifying
+    boolean revokeFamily(UUID familyId, Instant revokedAt);
 }
