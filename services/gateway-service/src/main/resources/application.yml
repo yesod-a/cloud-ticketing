@@ -1,0 +1,8 @@
+server:
+  port: ${SERVER_PORT:8080}
+spring:
+  application:
+    name: gateway-service
+cloudticket:
+  auth:
+    jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:dev-only-change-me}
