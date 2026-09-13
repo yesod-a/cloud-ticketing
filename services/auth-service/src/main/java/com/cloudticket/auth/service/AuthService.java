@@ -28,7 +28,7 @@ public class AuthService {
     public TokenService.Issued login(String identifier, String password) {
         String normalized = identifier != null && identifier.contains("@") ? normalizeEmail(identifier) : normalizePhone(identifier);
         UserEntity u=users.findByPhoneOrEmail(normalized).orElseThrow(() -> new InvalidCredentialsException());
-        if (u.lockedUntil()!=null && u.lockedUntil().isAfter(Instant.now())) throw new InvalidCredentialsException();
+        if (!"ACTIVE".equals(u.status()) || (u.lockedUntil()!=null && u.lockedUntil().isAfter(Instant.now()))) throw new InvalidCredentialsException();
         if (!encoder.matches(password, u.passwordHash())) {
             int count=u.failedLoginCount()+1; Instant lock=count>=MAX_FAILURES?Instant.now().plus(LOCK_DURATION):u.lockedUntil();
             users.save(new UserEntity(u.id(),u.phone(),u.email(),u.passwordHash(),u.nickname(),u.status(),count,lock,u.scopeVersion(),u.createdAt(),Instant.now()));
@@ -37,7 +37,7 @@ public class AuthService {
         if (u.failedLoginCount()!=0 || u.lockedUntil()!=null) u=users.save(new UserEntity(u.id(),u.phone(),u.email(),u.passwordHash(),u.nickname(),u.status(),0,null,u.scopeVersion(),u.createdAt(),Instant.now()));
         return tokens.issue(u);
     }
-    public TokenService.Issued refresh(String refreshToken) { var t=tokens.find(refreshToken); return tokens.rotate(refreshToken, users.findById(t.userId()).orElseThrow(InvalidCredentialsException::new)); }
+    public TokenService.Issued refresh(String refreshToken) { try { var t=tokens.find(refreshToken); return tokens.rotate(refreshToken, users.findById(t.userId()).orElseThrow(InvalidCredentialsException::new)); } catch (SecurityException ex) { throw new InvalidCredentialsException(); } }
     public void logout(String refreshToken) { tokens.revoke(refreshToken); }
     public String forgotPassword(String identifier) { String n=identifier!=null&&identifier.contains("@")?normalizeEmail(identifier):normalizePhone(identifier); users.findByPhoneOrEmail(n).ifPresent(u->resetTokens.put(UUID.randomUUID().toString(),u.id())); return "If the account exists, reset instructions were sent"; }
     public UserEntity resetPassword(String token,String password) { PasswordPolicy.requireValid(password); UUID id=resetTokens.remove(token); if(id==null) throw new InvalidCredentialsException(); UserEntity u=users.findById(id).orElseThrow(InvalidCredentialsException::new); return users.save(new UserEntity(u.id(),u.phone(),u.email(),encoder.encode(password),u.nickname(),u.status(),0,null,u.scopeVersion()+1,u.createdAt(),Instant.now())); }

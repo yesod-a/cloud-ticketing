@@ -16,7 +16,7 @@ public class TokenService {
     private final RefreshTokenRepository refreshTokens;
     private final byte[] signingKey;
     private final Duration refreshTtl;
-    public TokenService(RefreshTokenRepository refreshTokens) { this(refreshTokens, "dev-only-change-me", Duration.ofDays(30)); }
+    public TokenService(RefreshTokenRepository refreshTokens) { this(refreshTokens, System.getenv().getOrDefault("AUTH_JWT_SIGNING_KEY", "dev-only-change-me"), Duration.ofDays(30)); }
     public TokenService(RefreshTokenRepository refreshTokens, String signingKey, Duration refreshTtl) {
         this.refreshTokens = refreshTokens; this.signingKey = signingKey.getBytes(StandardCharsets.UTF_8); this.refreshTtl = refreshTtl;
     }
@@ -43,7 +43,8 @@ public class TokenService {
     private String randomToken() { return UUID.randomUUID()+"."+UUID.randomUUID(); }
     private String jwt(UserEntity u) {
         String header = b64("{\"alg\":\"HS256\",\"typ\":\"JWT\"}");
-        String payload = b64("{\"sub\":\""+u.id()+"\",\"jti\":\""+UUID.randomUUID()+"\",\"roles\":[],\"permissions\":[],\"scopeVersion\":"+u.scopeVersion()+",\"iat\":"+Instant.now().getEpochSecond()+"}");
+        long now = Instant.now().getEpochSecond();
+        String payload = b64("{\"sub\":\""+u.id()+"\",\"jti\":\""+UUID.randomUUID()+"\",\"roles\":[],\"permissions\":[],\"scopeVersion\":"+u.scopeVersion()+",\"iat\":"+now+",\"exp\":"+(now+900)+"}");
         String input = header+"."+payload; try { Mac mac=Mac.getInstance("HmacSHA256"); mac.init(new SecretKeySpec(signingKey,"HmacSHA256")); return input+"."+Base64.getUrlEncoder().withoutPadding().encodeToString(mac.doFinal(input.getBytes(StandardCharsets.UTF_8))); } catch(Exception e){throw new IllegalStateException(e);}
     }
     private static String b64(String s) { return Base64.getUrlEncoder().withoutPadding().encodeToString(s.getBytes(StandardCharsets.UTF_8)); }
