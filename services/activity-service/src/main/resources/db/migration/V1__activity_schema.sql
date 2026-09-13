@@ -1,0 +1,4 @@
+CREATE TABLE activity (id CHAR(36) PRIMARY KEY, title VARCHAR(200) NOT NULL, organizer VARCHAR(200) NOT NULL, status VARCHAR(20) NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP);
+CREATE TABLE venue (id CHAR(36) PRIMARY KEY, activity_id CHAR(36) NOT NULL, name VARCHAR(200) NOT NULL, address VARCHAR(500), FOREIGN KEY (activity_id) REFERENCES activity(id));
+CREATE TABLE activity_session (id CHAR(36) PRIMARY KEY, activity_id CHAR(36) NOT NULL, venue_id CHAR(36) NOT NULL, starts_at TIMESTAMP NOT NULL, ends_at TIMESTAMP NOT NULL, status VARCHAR(20) NOT NULL, FOREIGN KEY (activity_id) REFERENCES activity(id), FOREIGN KEY (venue_id) REFERENCES venue(id));
+CREATE TABLE seat_layout_version (id CHAR(36) PRIMARY KEY, venue_id CHAR(36) NOT NULL, version_no INT NOT NULL, published BOOLEAN NOT NULL DEFAULT FALSE, UNIQUE KEY uq_layout_version (venue_id,version_no));
