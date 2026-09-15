@@ -1,0 +1,3 @@
+package com.cloudticket.activity.api;
+import com.cloudticket.activity.service.ActivityCatalog; import java.util.*; import org.springframework.web.bind.annotation.*;
+@RestController @RequestMapping("/api/activities") public class ActivityController { private final ActivityCatalog catalog; public ActivityController(ActivityCatalog catalog){this.catalog=catalog;} @GetMapping public Map<String,Object> list(){return Map.of("code","OK","message","ok","traceId","","data",catalog.publicActivities());} @GetMapping("/{id}") public Map<String,Object> detail(@PathVariable String id){return Map.of("code","OK","message","ok","traceId","","data",catalog.get(id));} }

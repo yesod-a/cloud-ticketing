@@ -1,0 +1,2 @@
+export type Refresh = () => Promise<string | false>
+export function createSession(refreshRequest: Refresh) { let access: string | null = null; let refreshing: Promise<boolean> | null = null; return { token: () => access, set: (value: string | null) => { access = value }, clear: () => { access = null }, async refresh() { if (!refreshing) refreshing = refreshRequest().then(value => { access = value || null; return Boolean(value) }).finally(() => { refreshing = null }); return refreshing } } }

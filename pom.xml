@@ -21,6 +21,7 @@
     <module>common/common-web</module>
     <module>common/common-events</module>
     <module>services/gateway-service</module>
+    <module>services/auth-service</module>
     <module>services/activity-service</module>
     <module>services/inventory-service</module>
     <module>services/order-service</module>
@@ -34,6 +35,7 @@
     </dependencies>
   </dependencyManagement>
   <build>
+    <plugins><plugin><groupId>org.springframework.boot</groupId><artifactId>spring-boot-maven-plugin</artifactId><version>${spring-boot.version}</version></plugin></plugins>
     <pluginManagement><plugins>
       <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.14.0</version><configuration><release>21</release><encoding>UTF-8</encoding></configuration></plugin>
       <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.5.3</version></plugin>
