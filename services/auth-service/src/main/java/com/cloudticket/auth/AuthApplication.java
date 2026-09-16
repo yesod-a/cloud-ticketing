@@ -7,11 +7,14 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import com.cloudticket.auth.security.TokenService;
 import com.cloudticket.auth.repository.RefreshTokenRepository;
+import org.springframework.data.jdbc.core.convert.JdbcCustomConversions;
+import java.util.List;
 
 @SpringBootApplication
 public class AuthApplication {
     @Bean PasswordEncoder passwordEncoder() { return new BCryptPasswordEncoder(); }
     @Bean TokenService tokenService(RefreshTokenRepository repository) { return new TokenService(repository); }
+    @Bean JdbcCustomConversions jdbcCustomConversions() { return new JdbcCustomConversions(List.of(UuidConverters.BytesToUuid.INSTANCE, UuidConverters.UuidToBytes.INSTANCE)); }
     public static void main(String[] args) {
         SpringApplication.run(AuthApplication.class, args);
     }

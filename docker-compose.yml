@@ -3,7 +3,7 @@ services:
     image: mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
-    ports: ["3306:3306"]
+    ports: ["3308:3306"]
     volumes: ["mysql_data:/var/lib/mysql", "./docker/mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro"]
     healthcheck: { test: ["CMD", "mysqladmin", "ping", "-h", "localhost"], interval: 5s, timeout: 5s, retries: 20 }
   redis:
@@ -25,21 +25,66 @@ services:
   auth-service:
     build: { context: ., dockerfile: Dockerfile.auth }
     environment:
-      SERVER_PORT: 8084
+      AUTH_SERVER_PORT: 8081
+      AUTH_DB_URL: "jdbc:mysql://mysql:3306/cloud_ticketing_auth?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      AUTH_DB_USERNAME: root
+      AUTH_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       AUTH_JWT_SIGNING_KEY: "${AUTH_JWT_SIGNING_KEY:-dev-only-change-me}"
-    depends_on: { mysql: { condition: service_healthy } }
-    healthcheck: { test: ["CMD-SHELL", "wget -qO- http://localhost:8084/actuator/health || exit 1"], interval: 10s, timeout: 5s, retries: 12 }
-  activity-service: { build: { context: ., dockerfile: Dockerfile.activity } }
-  inventory-service: { build: { context: ., dockerfile: Dockerfile.inventory } }
-  order-service: { build: { context: ., dockerfile: Dockerfile.order } }
+      AUTH_ADMIN_PHONE: "${AUTH_ADMIN_PHONE:-}"
+      AUTH_ADMIN_PASSWORD: "${AUTH_ADMIN_PASSWORD:-}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { mysql: { condition: service_healthy }, redis: { condition: service_healthy }, nacos: { condition: service_started } }
+    healthcheck: { test: ["CMD-SHELL", "wget -qO- http://localhost:8081/actuator/health || exit 1"], interval: 10s, timeout: 5s, retries: 12 }
+  activity-service:
+    build: { context: ., dockerfile: Dockerfile.activity }
+    environment:
+      SERVER_PORT: 8081
+      ACTIVITY_DB_URL: "jdbc:mysql://mysql:3306/activity_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      ACTIVITY_DB_USERNAME: root
+      ACTIVITY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { mysql: { condition: service_healthy }, nacos: { condition: service_started } }
+  inventory-service:
+    build: { context: ., dockerfile: Dockerfile.inventory }
+    environment:
+      SERVER_PORT: 8082
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      INVENTORY_DB_URL: "jdbc:mysql://mysql:3306/inventory_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      INVENTORY_DB_USERNAME: root
+      INVENTORY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { redis: { condition: service_healthy }, mysql: { condition: service_healthy }, nacos: { condition: service_started } }
+  order-service:
+    build: { context: ., dockerfile: Dockerfile.order }
+    environment:
+      SERVER_PORT: 8083
+      ORDER_DB_URL: "jdbc:mysql://mysql:3306/order_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      ORDER_DB_USERNAME: root
+      ORDER_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      INVENTORY_BASE_URL: "http://inventory-service:8082"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      ORDER_OUTBOX_ENABLED: "true"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { mysql: { condition: service_healthy }, inventory-service: { condition: service_started }, kafka: { condition: service_started }, nacos: { condition: service_started } }
   gateway:
     build: { context: ., dockerfile: Dockerfile.gateway }
     environment:
       AUTH_JWT_SIGNING_KEY: "${AUTH_JWT_SIGNING_KEY:-dev-only-change-me}"
-    ports: ["8080:8080"]
-    depends_on: { auth-service: { condition: service_healthy } }
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      NACOS_SERVER_ADDR: nacos:8848
+    ports: ["${GATEWAY_PORT:-8080}:8080"]
+    depends_on: { auth-service: { condition: service_healthy }, redis: { condition: service_healthy }, nacos: { condition: service_started } }
   web:
     build: ./web
-    ports: ["5173:80"]
+    ports: ["${WEB_PORT:-5173}:80"]
     depends_on: [gateway]
 volumes: { mysql_data: {} }

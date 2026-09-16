@@ -11,19 +11,24 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.jdbc.core.JdbcTemplate;
+import java.util.List;
 
 @Service
 public class AuthService {
     private static final int MAX_FAILURES = 5;
     private static final Duration LOCK_DURATION = Duration.ofMinutes(15);
-    private final UserRepository users; private final PasswordEncoder encoder; private final TokenService tokens;
+    private final UserRepository users; private final PasswordEncoder encoder; private final TokenService tokens; private final JdbcTemplate jdbc;
     private final ConcurrentHashMap<String, UUID> resetTokens = new ConcurrentHashMap<>();
-    public AuthService(UserRepository users, PasswordEncoder encoder, TokenService tokens) { this.users=users; this.encoder=encoder; this.tokens=tokens; }
+    public AuthService(UserRepository users, PasswordEncoder encoder, TokenService tokens) { this(users, encoder, tokens, null); }
+    @org.springframework.beans.factory.annotation.Autowired public AuthService(UserRepository users, PasswordEncoder encoder, TokenService tokens, JdbcTemplate jdbc) { this.users=users; this.encoder=encoder; this.tokens=tokens; this.jdbc=jdbc; }
     public UserEntity register(String phone, String email, String password, String nickname) {
         phone=normalizePhone(phone); email=normalizeEmail(email); PasswordPolicy.requireValid(password);
         if (phone == null && email == null) throw new IllegalArgumentException("phone or email required");
         if (phone != null && users.existsByPhone(phone) || email != null && users.existsByEmail(email)) throw new DuplicateCredentialException();
-        Instant now=Instant.now(); UserEntity u=new UserEntity(UUID.randomUUID(),phone,email,encoder.encode(password),nickname,"ACTIVE",0,null,0,now,now); return users.save(u);
+        Instant now=Instant.now(); UUID id=UUID.randomUUID(); String passwordHash=encoder.encode(password);
+        users.insert(id.toString(), phone, email, passwordHash, nickname, "ACTIVE", 0, null, 0, now, now);
+        return new UserEntity(id, phone, email, passwordHash, nickname, "ACTIVE", 0, null, 0, now, now);
     }
     public TokenService.Issued login(String identifier, String password) {
         String normalized = identifier != null && identifier.contains("@") ? normalizeEmail(identifier) : normalizePhone(identifier);
@@ -35,10 +40,11 @@ public class AuthService {
             throw new InvalidCredentialsException();
         }
         if (u.failedLoginCount()!=0 || u.lockedUntil()!=null) u=users.save(new UserEntity(u.id(),u.phone(),u.email(),u.passwordHash(),u.nickname(),u.status(),0,null,u.scopeVersion(),u.createdAt(),Instant.now()));
-        return tokens.issue(u);
+        return tokens.issue(u, users.findRoleCodes(u.id().toString()), users.findPermissionCodes(u.id().toString()), users.findScopes(u.id().toString()));
     }
-    public TokenService.Issued refresh(String refreshToken) { try { var t=tokens.find(refreshToken); return tokens.rotate(refreshToken, users.findById(t.userId()).orElseThrow(InvalidCredentialsException::new)); } catch (SecurityException ex) { throw new InvalidCredentialsException(); } }
-    public void logout(String refreshToken) { tokens.revoke(refreshToken); }
+    public TokenService.Issued refresh(String refreshToken) { try { var t=tokens.findAny(refreshToken); UserEntity u=users.findById(t.userId()).orElseThrow(InvalidCredentialsException::new); return tokens.rotate(refreshToken, u, users.findRoleCodes(u.id().toString()), users.findPermissionCodes(u.id().toString()), users.findScopes(u.id().toString())); } catch (SecurityException ex) { throw new InvalidCredentialsException(); } }
+    public void logout(String refreshToken) { logout(refreshToken, null); }
+    public void logout(String refreshToken, String accessToken) { tokens.revoke(refreshToken); if (jdbc != null && accessToken != null && !accessToken.isBlank()) TokenService.parseAccessToken(accessToken).ifPresent(claims -> jdbc.update("INSERT IGNORE INTO auth_revoked_access_token(jti,expires_at) VALUES(?,?)", claims.jti(), java.sql.Timestamp.from(claims.expiresAt()))); }
     public String forgotPassword(String identifier) { String n=identifier!=null&&identifier.contains("@")?normalizeEmail(identifier):normalizePhone(identifier); users.findByPhoneOrEmail(n).ifPresent(u->resetTokens.put(UUID.randomUUID().toString(),u.id())); return "If the account exists, reset instructions were sent"; }
     public UserEntity resetPassword(String token,String password) { PasswordPolicy.requireValid(password); UUID id=resetTokens.remove(token); if(id==null) throw new InvalidCredentialsException(); UserEntity u=users.findById(id).orElseThrow(InvalidCredentialsException::new); return users.save(new UserEntity(u.id(),u.phone(),u.email(),encoder.encode(password),u.nickname(),u.status(),0,null,u.scopeVersion()+1,u.createdAt(),Instant.now())); }
     public UserEntity me(UUID userId) { return users.findById(userId).orElseThrow(InvalidCredentialsException::new); }

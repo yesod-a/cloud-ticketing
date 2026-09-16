@@ -1,5 +1,5 @@
-import type { Activity, Seat } from './types'
-const json = async <T>(input: RequestInfo, init?: RequestInit): Promise<T> => { const res = await fetch(input, init); if (!res.ok) throw new Error(`REQUEST_${res.status}`); return res.json() }
-export const getActivity = (id: string) => json<Activity>(`/api/activities/${id}`)
-export const getSeats = (sessionId: string) => json<Seat[]>(`/api/sessions/${sessionId}/seats`)
-export const createOrder = (sessionId: string, seatIds: string[], idempotencyKey: string) => json<{ orderId: string; status: string; expiresAt: string }>(`/api/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Trace-Id': idempotencyKey }, body: JSON.stringify({ sessionId, seatIds, idempotencyKey }) })
+import type { Activity, Seat, Session } from './types'
+import { api } from './auth/authApi'
+export const getActivity = (id: string) => api<{activity:Activity;sessions:Session[]}>(`/api/activities/${id}`)
+export const getSeats = (sessionId: string) => api<Seat[]>(`/api/sessions/${sessionId}/seats`)
+export const createOrder = (sessionId: string, seatIds: string[], idempotencyKey: string) => api<Record<string,string>>('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Trace-Id': idempotencyKey }, body: JSON.stringify({ sessionId, seatIds: seatIds.join(','), idempotencyKey }) })
