@@ -21,7 +21,7 @@ class ActivityAuditControllerTest {
     var session = new ActivityCatalog.Session("session-1", "activity-1", "2026-10-01T10:00:00Z", "2026-10-01T11:00:00Z", "Venue", "DRAFT");
     var seat = new ActivityCatalog.Seat("seat-1", "A", 1, "AVAILABLE");
     when(catalog.create(anyString(), nullable(String.class))).thenReturn(activity);
-    when(catalog.createSession(anyString(), anyString(), anyString(), anyString(), anyString())).thenReturn(session);
+    when(catalog.createSession(anyString(), anyString(), anyString(), anyString(), anyString(), anyInt())).thenReturn(session);
     when(catalog.publish(anyString())).thenReturn(new ActivityCatalog.Activity("activity-1", "A", "Org", "PUBLISHED", false));
     when(catalog.offline(anyString())).thenReturn(new ActivityCatalog.Activity("activity-1", "A", "Org", "OFFLINE", false));
     when(catalog.freezeLayout(anyString())).thenReturn(new ActivityCatalog.Activity("activity-1", "A", "Org", "PUBLISHED", true));

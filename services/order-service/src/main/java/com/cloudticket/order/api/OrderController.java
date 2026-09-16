@@ -1,6 +1,7 @@
 package com.cloudticket.order.api;
 
 import com.cloudticket.order.OrderStore;
+import com.cloudticket.order.PaymentService;
 import com.cloudticket.order.security.OrderAuthorization;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
@@ -10,8 +11,11 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/orders")
 public class OrderController {
   private final OrderStore store;
+  private final PaymentService payments;
   private final OrderAuthorization authorization = new OrderAuthorization();
-  public OrderController(OrderStore store) { this.store = store; }
+  public OrderController(OrderStore store) { this(store, null); }
+  @org.springframework.beans.factory.annotation.Autowired
+  public OrderController(OrderStore store, PaymentService payments) { this.store = store; this.payments = payments; }
 
   @PostMapping
   public Map<String, Object> create(@RequestHeader("X-User-Id") String user, @RequestBody Map<String, Object> body) {
@@ -42,6 +46,22 @@ public class OrderController {
   @PostMapping("/{id}/refund")
   public ResponseEntity<?> requestRefund(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestBody Map<String,String> body) {
     return store.find(id).filter(order -> authorization.canRequestRefund(user, String.valueOf(order.get("userId")))).map(order -> ResponseEntity.ok(store.requestRefund(id, user, body.get("reason")))).orElseGet(() -> ResponseEntity.notFound().build());
+  }
+
+  @GetMapping("/{id}/payment")
+  public Map<String, Object> payment(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user) {
+    return payments.status(id, user);
+  }
+
+  @PostMapping("/{id}/payments")
+  public Map<String, Object> createPayment(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestBody(required = false) Map<String, Object> body) {
+    String method = body == null ? null : String.valueOf(body.getOrDefault("method", ""));
+    return payments.intent(id, user, method);
+  }
+
+  @PostMapping("/{id}/pay")
+  public Map<String, Object> pay(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user) {
+    return payments.pay(id, user);
   }
 
   @GetMapping("/admin/refunds")

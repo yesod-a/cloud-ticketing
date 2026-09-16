@@ -37,5 +37,12 @@ public class InternalInventoryLockController {
     return Map.of("orderId", orderId, "status", "RELEASED");
   }
 
+  @PostMapping("/{orderId}/confirm")
+  public Map<String, Object> confirm(@RequestHeader(value = "X-Internal-Service-Token", defaultValue = "") String token, @PathVariable String orderId) {
+    trusted(token);
+    int sold = reservations.confirm(orderId);
+    return Map.of("orderId", orderId, "status", "CONFIRMED", "soldSeats", sold);
+  }
+
   private void trusted(String token) { if (token == null || !token.equals(internalToken)) throw new SecurityException("internal authentication required"); }
 }

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { createOrder, getActivity, getSeats } from '../api'
 import type { Activity, Seat, Session } from '../types'
-const props=defineProps<{activity:Activity}>(); const emit=defineEmits<{back:[]}>()
+const props=defineProps<{activity:Activity}>(); const emit=defineEmits<{back:[];pay:[orderId:string]}>()
 const sessions=ref<Session[]>([]), selectedSession=ref(''), seats=ref<Seat[]>([]), selected=ref<string[]>([]), loading=ref(true), error=ref(''), order=ref<Record<string,string>|null>(null)
 const currentSession=computed(()=>sessions.value.find(s=>s.id===selectedSession.value))
 const isAvailable=(seat:Seat)=>['AVAILABLE','available'].includes(seat.status)
@@ -33,7 +33,10 @@ onMounted(async()=>{try{const d=await getActivity(props.activity.id);sessions.va
     </div>
     <div class="seat-summary"><span class="seat-legend"><i class="dot available"></i>可选</span><span class="seat-legend"><i class="dot selected"></i>已选</span><span class="seat-legend"><i class="dot locked"></i>不可选</span></div>
     <button class="primary-btn" :disabled="!selected.length||!!order" @click="submit">{{ order?'订单已创建':'确认选座（'+selected.length+'）' }}</button>
-    <pre v-if="order" class="order-result">订单号：{{ order.id }}<br>状态：{{ order.status }}</pre>
+    <div v-if="order" class="order-result">
+      <p>订单号：{{ order.id }}　状态：{{ order.status }}</p>
+      <button class="primary-btn" @click="emit('pay', order.id)">去支付</button>
+    </div>
   </section>
 </template>
 <style scoped>

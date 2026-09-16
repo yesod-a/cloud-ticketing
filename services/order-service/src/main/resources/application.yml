@@ -19,6 +19,7 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
 cloudticket:
   inventory-base-url: ${INVENTORY_BASE_URL:http://inventory-service:8082}
+  activity-base-url: ${ACTIVITY_BASE_URL:http://activity-service:8081}
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
   outbox:
     enabled: ${ORDER_OUTBOX_ENABLED:false}

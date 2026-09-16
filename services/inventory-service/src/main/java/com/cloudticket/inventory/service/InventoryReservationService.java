@@ -61,6 +61,19 @@ public class InventoryReservationService {
     }
   }
 
+  /** Converts a paid order's active locks into permanently sold seats. */
+  @Transactional
+  public int confirm(String orderId) {
+    if (orderId == null || orderId.isBlank()) return 0;
+    List<String> seats = jdbc.query("SELECT seat_id FROM inventory_lock WHERE order_id=? AND active=1", (r, n) -> r.getString(1), orderId);
+    if (seats.isEmpty()) return 0;
+    String placeholders = String.join(",", java.util.Collections.nCopies(seats.size(), "?"));
+    List<Object> args = new ArrayList<>(seats);
+    int sold = jdbc.update("UPDATE inventory_seat SET status='SOLD' WHERE id IN (" + placeholders + ") AND status='LOCKED'", args.toArray());
+    jdbc.update("UPDATE inventory_lock SET active=0,status='CONFIRMED' WHERE order_id=? AND active=1", orderId);
+    return sold;
+  }
+
   @Scheduled(fixedDelayString = "${cloudticket.inventory-expiry-scan-ms:30000}")
   @Transactional
   public void expireReservations() {

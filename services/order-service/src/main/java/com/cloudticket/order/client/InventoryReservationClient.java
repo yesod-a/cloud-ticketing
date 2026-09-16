@@ -32,6 +32,10 @@ public class InventoryReservationClient {
     client.post().uri("/api/internal/inventory/locks/{orderId}/release", orderId).header("X-Internal-Service-Token", internalToken).retrieve().toBodilessEntity();
   }
 
+  public void confirm(String orderId) {
+    client.post().uri("/api/internal/inventory/locks/{orderId}/confirm", orderId).header("X-Internal-Service-Token", internalToken).retrieve().toBodilessEntity();
+  }
+
   @ResponseStatus(HttpStatus.CONFLICT)
   public static final class SeatUnavailableException extends RuntimeException {
     public SeatUnavailableException() { super("one or more seats are unavailable"); }

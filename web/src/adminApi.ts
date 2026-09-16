@@ -7,10 +7,10 @@ export const updateAdminActivity=(id:string,title:string,organizer:string)=>api<
 export const publishAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/publish`,{method:'POST'})
 export const offlineAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/offline`,{method:'POST'})
 export const deleteAdminActivity=(id:string)=>api<{code:string}>(`/api/admin/activities/${id}`,{method:'DELETE'})
-export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string}
+export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string;priceMinor:number}
 export const adminActivitySessions=(activityId:string,params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminSession>>(`/api/admin/activities/${activityId}/sessions?${q}`)}
-export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-export const updateAdminSession=(activityId:string,sessionId:string,body:{startsAt:string;endsAt:string;status?:string})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string;price?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const updateAdminSession=(activityId:string,sessionId:string,body:{startsAt:string;endsAt:string;status?:string;price?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
 export const publishAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/publish`,{method:'POST'})
 export const offlineAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/offline`,{method:'POST'})
 export const deleteAdminSession=(activityId:string,sessionId:string)=>api<{code:string}>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'DELETE'})
@@ -31,7 +31,7 @@ export const toLocalIso=(value:string)=>new Date(value).toISOString()
 export const assertTimeOrder=(startsAt:string,endsAt:string):boolean=>Boolean(startsAt&&endsAt&&new Date(startsAt).getTime()<new Date(endsAt).getTime())
 export type AdminOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string}
 export const adminOrders=(params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminOrder>>(`/api/orders/admin?${q}`)}
-export type UserOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string;createdAt:string;updatedAt:string}
+export type UserOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string;amountMinor:number;createdAt:string;updatedAt:string}
 export const myOrders=(params:{page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<UserOrder>>(`/api/orders/me?${q}`)}
 export const cancelOrder=(id:string)=>api<UserOrder>(`/api/orders/${id}/cancel`,{method:'POST'})
 export const requestOrderRefund=(id:string,reason:string)=>api<RefundRequest>(`/api/orders/${id}/refund`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})})

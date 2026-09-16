@@ -1,6 +1,7 @@
 package com.cloudticket.order;
 
 import com.cloudticket.common.events.EventTypes;
+import com.cloudticket.order.client.ActivitySessionClient;
 import com.cloudticket.order.client.InventoryReservationClient;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -17,9 +18,11 @@ import org.slf4j.MDC;
 public class OrderStore {
   private final JdbcTemplate jdbc;
   private final InventoryReservationClient inventory;
-  public OrderStore(JdbcTemplate jdbc) { this(jdbc, null); }
+  private final ActivitySessionClient sessions;
+  public OrderStore(JdbcTemplate jdbc) { this(jdbc, null, null); }
+  public OrderStore(JdbcTemplate jdbc, InventoryReservationClient inventory) { this(jdbc, inventory, null); }
   @org.springframework.beans.factory.annotation.Autowired
-  public OrderStore(JdbcTemplate jdbc, InventoryReservationClient inventory) { this.jdbc = jdbc; this.inventory = inventory; }
+  public OrderStore(JdbcTemplate jdbc, InventoryReservationClient inventory, ActivitySessionClient sessions) { this.jdbc = jdbc; this.inventory = inventory; this.sessions = sessions; }
 
   @Transactional
   public Map<String, Object> create(String userId, String sessionId, String seatIds, String idempotencyKey) {
@@ -30,7 +33,7 @@ public class OrderStore {
     String key = idempotencyKey.trim();
     List<String> requestedSeats = normalizeSeats(seatIds);
     String requestHash = requestHash(userId, sessionId, requestedSeats);
-    List<Map<String, Object>> existing = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,created_at,updated_at,request_hash FROM ticket_order WHERE idempotency_key=?", this::map, key);
+    List<Map<String, Object>> existing = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,amount_minor,created_at,updated_at,request_hash FROM ticket_order WHERE idempotency_key=?", this::map, key);
     if (!existing.isEmpty()) {
       Map<String, Object> previous = existing.get(0);
       String storedHash = Objects.toString(previous.get("requestHash"), "");
@@ -40,10 +43,12 @@ public class OrderStore {
       if (!requestHash.equals(storedHash)) throw new IdempotencyConflictException();
       return previous;
     }
+    int unitPriceMinor = sessions == null ? 0 : sessions.priceMinor(sessionId);
+    int amountMinor = unitPriceMinor * requestedSeats.size();
     String id = UUID.randomUUID().toString();
     if (inventory != null) inventory.reserve(id, sessionId, requestedSeats);
     try {
-      jdbc.update("INSERT INTO ticket_order(id,user_id,session_id,seat_ids,idempotency_key,request_hash,status) VALUES (?,?,?,?,?,?, 'PENDING')", id, userId, sessionId, String.join(",", requestedSeats), key, requestHash);
+      jdbc.update("INSERT INTO ticket_order(id,user_id,session_id,seat_ids,idempotency_key,request_hash,status,amount_minor) VALUES (?,?,?,?,?,?, 'PENDING', ?)", id, userId, sessionId, String.join(",", requestedSeats), key, requestHash, amountMinor);
     } catch (DuplicateKeyException duplicate) {
       if (inventory != null) inventory.release(id);
       return findByIdempotencyKey(key).orElseThrow(() -> duplicate);
@@ -56,14 +61,14 @@ public class OrderStore {
     return created;
   }
 
-  public Optional<Map<String, Object>> find(String id) { return jdbc.query("SELECT id,user_id,session_id,seat_ids,status,created_at,updated_at,request_hash FROM ticket_order WHERE id=?", this::map, id).stream().findFirst(); }
-  public Optional<Map<String, Object>> findByIdempotencyKey(String key) { return jdbc.query("SELECT id,user_id,session_id,seat_ids,status,created_at,updated_at,request_hash FROM ticket_order WHERE idempotency_key=?", this::map, key).stream().findFirst(); }
+  public Optional<Map<String, Object>> find(String id) { return jdbc.query("SELECT id,user_id,session_id,seat_ids,status,amount_minor,created_at,updated_at,request_hash FROM ticket_order WHERE id=?", this::map, id).stream().findFirst(); }
+  public Optional<Map<String, Object>> findByIdempotencyKey(String key) { return jdbc.query("SELECT id,user_id,session_id,seat_ids,status,amount_minor,created_at,updated_at,request_hash FROM ticket_order WHERE idempotency_key=?", this::map, key).stream().findFirst(); }
   public Page pageForUser(String userId, int page, int size) { return page("user_id=?", new Object[]{userId}, page, size); }
   public Page pageForAdmin(String status, int page, int size) { String st = status == null ? "" : status.trim(); return page("(?='' OR status=?)", new Object[]{st, st}, page, size); }
   public Page pageForAdmin(String status, int page, int size, String permissions, String scopes) {
     if (permissions != null && permissions.contains("system:config")) return pageForAdmin(status, page, size);
     String st = status == null ? "" : status.trim(); int p=Math.max(0,page), s=Math.min(100,Math.max(1,size));
-    List<Map<String,Object>> all = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,created_at,updated_at,request_hash FROM ticket_order WHERE (?='' OR status=?) ORDER BY created_at DESC", this::map, st, st);
+    List<Map<String,Object>> all = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,amount_minor,created_at,updated_at,request_hash FROM ticket_order WHERE (?='' OR status=?) ORDER BY created_at DESC", this::map, st, st);
     List<Map<String,Object>> visible = all.stream().filter(order -> OrderScopeFilter.visible(order, permissions, scopes)).toList();
     int from=Math.min(p*s,visible.size()); return new Page(visible.subList(from,Math.min(from+s,visible.size())),p,s,visible.size());
   }
@@ -72,7 +77,7 @@ public class OrderStore {
     int p = Math.max(0, page), s = Math.min(100, Math.max(1, size));
     Integer total = jdbc.queryForObject("SELECT COUNT(*) FROM ticket_order WHERE " + where, Integer.class, args);
     Object[] listArgs = Arrays.copyOf(args, args.length + 2); listArgs[args.length] = s; listArgs[args.length + 1] = p * s;
-    List<Map<String, Object>> items = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,created_at,updated_at,request_hash FROM ticket_order WHERE " + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?", this::map, listArgs);
+    List<Map<String, Object>> items = jdbc.query("SELECT id,user_id,session_id,seat_ids,status,amount_minor,created_at,updated_at,request_hash FROM ticket_order WHERE " + where + " ORDER BY created_at DESC LIMIT ? OFFSET ?", this::map, listArgs);
     return new Page(items, p, s, total == null ? 0 : total);
   }
 
@@ -89,7 +94,7 @@ public class OrderStore {
   public Map<String, Object> requestRefund(String orderId, String userId, String reason) {
     if (reason == null || reason.isBlank()) throw new IllegalArgumentException("refund reason required");
     Map<String,Object> order = find(orderId).filter(o -> userId.equals(o.get("userId"))).orElseThrow(() -> new NoSuchElementException("order not found"));
-    if (!Set.of("PAID", "PENDING").contains(String.valueOf(order.get("status")))) throw new IllegalStateException("order is not refundable");
+    if (!Set.of("PAID").contains(String.valueOf(order.get("status")))) throw new IllegalStateException("order is not refundable");
     String id = UUID.randomUUID().toString();
     try { jdbc.update("INSERT INTO refund_request(id,order_id,user_id,reason,status) VALUES (?,?,?,?,'REQUESTED')", id, orderId, userId, reason.trim()); }
     catch (DuplicateKeyException e) { return refundByOrder(orderId).orElseThrow(() -> e); }
@@ -121,7 +126,7 @@ public class OrderStore {
     if (changed==0) throw new IllegalStateException("refund request already reviewed");
     if (approve) {
       String orderId = String.valueOf(request.get("orderId"));
-      int orderChanged = jdbc.update("UPDATE ticket_order SET status='REFUNDED' WHERE id=? AND status IN ('PAID','PENDING')", orderId);
+      int orderChanged = jdbc.update("UPDATE ticket_order SET status='REFUNDED' WHERE id=? AND status='PAID'", orderId);
       if (orderChanged > 0) {
         writeOutbox(EventTypes.ORDER_REFUNDED, orderId, Map.of(
             "orderId", orderId, "refundId", String.valueOf(request.get("id")),
@@ -180,7 +185,7 @@ public class OrderStore {
     Map<String, Object> value = new LinkedHashMap<>();
     value.put("id", r.getString("id")); value.put("userId", r.getString("user_id")); value.put("sessionId", r.getString("session_id"));
     value.put("seatIds", r.getString("seat_ids")); value.put("status", r.getString("status"));
-    value.put("requestHash", r.getString("request_hash"));
+    value.put("requestHash", r.getString("request_hash")); value.put("amountMinor", r.getInt("amount_minor"));
     value.put("createdAt", r.getTimestamp("created_at").toInstant().toString()); value.put("updatedAt", r.getTimestamp("updated_at").toInstant().toString());
     return value;
   }

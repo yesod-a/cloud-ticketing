@@ -69,6 +69,7 @@ services:
       ORDER_DB_USERNAME: root
       ORDER_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       INVENTORY_BASE_URL: "http://inventory-service:8082"
+      ACTIVITY_BASE_URL: "http://activity-service:8081"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
