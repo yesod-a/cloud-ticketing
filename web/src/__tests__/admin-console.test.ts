@@ -18,4 +18,11 @@ describe('admin console', () => {
     const wrapper = mount(AdminLayout, { props: { permissions: ['scope:manage'] } })
     expect(wrapper.get('[data-testid="admin-module-scopes"]').attributes('type')).toBe('button')
   })
+
+  it('opens activity creation modal and exposes venue configuration controls', async () => {
+    const wrapper = mount(AdminLayout, { props: { permissions: ['activity:write', 'session:write', 'venue:write', 'seat-layout:write'] } })
+    await wrapper.get('.floating-create').trigger('click')
+    expect(wrapper.text()).toContain('创建活动')
+    expect(wrapper.find('.modal-backdrop').exists()).toBe(true)
+  })
 })

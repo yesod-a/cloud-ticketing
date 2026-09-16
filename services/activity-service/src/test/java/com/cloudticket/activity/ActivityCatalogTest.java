@@ -16,4 +16,9 @@ class ActivityCatalogTest {
   @Test void unknownSeatHasNoActivityInMemoryMode() {
     assertNull(new ActivityCatalog().activityIdForSeat("seat-unknown"));
   }
+
+  @Test void rejectsSessionWhenEndIsNotAfterStart() {
+    var catalog=new ActivityCatalog();
+    assertThrows(IllegalArgumentException.class,()->catalog.createSession("activity","venue","2026-10-01T12:00:00Z","2026-10-01T11:00:00Z","DRAFT"));
+  }
 }

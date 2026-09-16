@@ -9,8 +9,14 @@ export const offlineAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/ac
 export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string}
 export const adminActivitySessions=(activityId:string,params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminSession>>(`/api/admin/activities/${activityId}/sessions?${q}`)}
 export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-export type AdminVenue={id:string;activityId:string;name:string;address:string}
+export type AdminVenue={id:string;activityId:string;name:string;address:string;capacity:number}
 export const adminVenues=(activityId?:string)=>api<{items:AdminVenue[]}>(`/api/admin/venues?activityId=${encodeURIComponent(activityId||'')}`)
+export type AdminVenueSeat={id:string;venueId:string;rowLabel:string;seatNumber:number;position:string;status:string}
+export const createAdminVenue=(activityId:string,name:string,address:string,capacity:number)=>api<AdminVenue>('/api/admin/venues',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({activityId,name,address,capacity})})
+export const adminVenueSeats=(venueId:string)=>api<{items:AdminVenueSeat[]}>(`/api/admin/venues/${venueId}/seats`)
+export const createAdminVenueSeat=(venueId:string,body:{rowLabel:string;seatNumber:number;position?:string;status?:string})=>api<AdminVenueSeat>(`/api/admin/venues/${venueId}/seats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const updateAdminVenueSeat=(venueId:string,seatId:string,body:{rowLabel:string;seatNumber:number;position?:string;status?:string})=>api<AdminVenueSeat>(`/api/admin/venues/${venueId}/seats/${seatId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const deleteAdminVenueSeat=(venueId:string,seatId:string)=>api<{code:string}>(`/api/admin/venues/${venueId}/seats/${seatId}`,{method:'DELETE'})
 export type AdminOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string}
 export const adminOrders=(params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminOrder>>(`/api/orders/admin?${q}`)}
 export type UserOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string;createdAt:string;updatedAt:string}

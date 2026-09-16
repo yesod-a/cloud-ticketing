@@ -1,5 +1,11 @@
 # Authentication, RBAC, and Multi-Activity Verification
 
+## 2026-09-16 Venue and seat template management
+
+- Flyway V6 adds venue capacity and the `venue_seat` template table; creating a session copies the template seats into session inventory.
+- Admin activity creation now opens a modal; activity configuration exposes real venue selection, venue creation, seat-template CRUD, and session time validation with linked end-time minimum.
+- Verification: full Maven tests PASS; Vitest 10 files/17 tests PASS; Vite production build PASS; `docker compose config --quiet` PASS.
+
 | Check | Command | Result |
 |---|---|---|
 | Auth and service unit tests | `mvn -q -pl services/auth-service,services/gateway-service,services/activity-service,services/order-service,services/inventory-service -am test` | PASS |
