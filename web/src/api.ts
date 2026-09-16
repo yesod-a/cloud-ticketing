@@ -1,5 +1,7 @@
 import type { Activity, Seat, Session } from './types'
 import { api } from './auth/authApi'
+export type ActivityPage = { items: Activity[]; page: number; size: number; total: number; totalPages: number }
+export const listActivities = (params: { keyword?: string; organizer?: string; page?: number; size?: number } = {}) => { const q = new URLSearchParams(); Object.entries(params).forEach(([k, v]) => v !== undefined && q.set(k, String(v))); return api<ActivityPage>(`/api/activities?${q}`) }
 export const getActivity = (id: string) => api<{activity:Activity;sessions:Session[]}>(`/api/activities/${id}`)
 export const getSeats = (sessionId: string) => api<Seat[]>(`/api/sessions/${sessionId}/seats`)
 export const createOrder = (sessionId: string, seatIds: string[], idempotencyKey: string) => api<Record<string,string>>('/api/orders', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Trace-Id': idempotencyKey }, body: JSON.stringify({ sessionId, seatIds: seatIds.join(','), idempotencyKey }) })
