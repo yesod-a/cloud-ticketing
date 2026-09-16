@@ -22,3 +22,9 @@
 ## Decisions
 
 Ruling: venue seat templates are copied into each session at session creation — preserves independent inventory per session and avoids retroactively changing sold seats.
+
+Task 1: complete (commit 6ccce2d, implementation and activity tests pass)
+Task 2: complete (commit cbcc857, controller/API changes and Maven tests pass)
+Task 3: complete (commit cbcc857, admin API wrappers and Vitest pass)
+Task 4: complete (commit cbcc857, modal/configuration UI and Vite build pass)
+Task 5: complete (commit cbcc857, full Maven/Vitest/build/Compose config verification pass)
