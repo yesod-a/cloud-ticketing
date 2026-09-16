@@ -15,6 +15,14 @@
 - Docker Maven builds now use an Aliyun mirror via `maven-settings.xml` to avoid intermittent Central TLS handshake failures.
 - Verification: full Maven tests PASS; Vitest 10 files/17 tests PASS; Vite build PASS; rebuilt and recreated `activity-service`, `inventory-service`, and `web`; live flow (login → venue → layout → activity → session → public seats) returned 6 seats with area/display/coordinates.
 
+## 2026-09-16 Simulated payment with per-session pricing
+
+- Admins can set a per-session price (`activity_session.price_minor`, default 0) from the session form; the order stores an `amount_minor` snapshot taken from that price at order time.
+- `order-service` gained a simulated payment flow with a `payment` table: `POST /api/orders/{id}/payments` creates or reuses an intent (methods `WECHAT`, `ALIPAY`, `UNIONPAY`) and returns an amount plus a ZXing-generated QR data URL; `POST /api/orders/{id}/pay` completes it.
+- Paying writes `PaymentSucceeded` to the order outbox in the same transaction and then confirms inventory: `POST /api/internal/inventory/locks/{orderId}/confirm` moves seats `LOCKED → SOLD` and marks the lock `CONFIRMED`, so the TTL scanner can no longer release paid seats.
+- Refunds are now limited to `PAID` orders.
+- Verification: full Maven tests PASS; Vitest 11 files/20 tests PASS; Vite build PASS; rebuilt `activity-service`, `order-service`, `inventory-service`, `web`. Live run: session price 19900 → 2-seat order `amount_minor=39800` → payment intent `ALIPAY` with QR → pay returned `payment=SUCCESS, order=PAID`; MySQL showed both seats `SOLD`, locks `CONFIRMED`, and outbox `PaymentSucceeded` published to Kafka.
+
 | Check | Command | Result |
 |---|---|---|
 | Auth and service unit tests | `mvn -q -pl services/auth-service,services/gateway-service,services/activity-service,services/order-service,services/inventory-service -am test` | PASS |
