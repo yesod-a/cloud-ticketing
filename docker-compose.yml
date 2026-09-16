@@ -45,6 +45,8 @@ services:
       ACTIVITY_DB_URL: "jdbc:mysql://mysql:3306/activity_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
       ACTIVITY_DB_USERNAME: root
       ACTIVITY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      INVENTORY_BASE_URL: "http://inventory-service:8082"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
       NACOS_SERVER_ADDR: nacos:8848
     depends_on: { mysql: { condition: service_healthy }, nacos: { condition: service_started } }
   inventory-service:

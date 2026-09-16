@@ -15,3 +15,6 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+cloudticket:
+  inventory-base-url: ${INVENTORY_BASE_URL:http://inventory-service:8082}
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}

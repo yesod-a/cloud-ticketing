@@ -1,6 +1,8 @@
 package com.cloudticket.activity.api;
 
 import com.cloudticket.activity.service.ActivityCatalog;
+import com.cloudticket.activity.client.InventorySeatProvisionClient;
+import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.*;
 
@@ -8,7 +10,9 @@ import org.springframework.web.bind.annotation.*;
 @RequestMapping("/api/admin/activities")
 public class ActivityAdminController {
   private final ActivityCatalog catalog;
-  public ActivityAdminController(ActivityCatalog catalog) { this.catalog = catalog; }
+  private final InventorySeatProvisionClient inventoryClient;
+  public ActivityAdminController(ActivityCatalog catalog) { this(catalog, null); }
+  public ActivityAdminController(ActivityCatalog catalog, InventorySeatProvisionClient inventoryClient) { this.catalog = catalog; this.inventoryClient = inventoryClient; }
   private void allowed(String permissions) { if (!permissions.contains("activity:read") && !permissions.contains("activity:write") && !permissions.contains("activity:publish") && !permissions.contains("system:config")) throw new SecurityException("forbidden"); }
   private void require(String permissions, String permission) { if (!permissions.contains(permission) && !permissions.contains("system:config")) throw new SecurityException("forbidden"); }
   private Map<String, Object> page(ActivityCatalog.Page<?> result) { return Map.of("items", result.items(), "page", result.page(), "size", result.size(), "total", result.total(), "totalPages", result.totalPages()); }
@@ -26,7 +30,7 @@ public class ActivityAdminController {
   @PutMapping("/{id}")
   public ActivityCatalog.Activity update(@PathVariable("id") String id,@RequestBody Map<String,String> body,@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions,@RequestHeader(value="X-User-Scopes",defaultValue="") String scopes,@RequestHeader(value="X-User-Id",defaultValue="") String actor,@RequestHeader(value="X-Trace-Id",defaultValue="") String trace){if(!permissions.contains("activity:write")&&!permissions.contains("system:config"))throw new SecurityException("forbidden");if(!com.cloudticket.activity.security.ScopeAccess.allows(permissions,scopes,"ACTIVITY",id))throw new SecurityException("forbidden");var before=catalog.get(id);var a=catalog.update(id,body.get("title"),body.get("organizer"));catalog.audit(actor,"ACTIVITY_UPDATED","ACTIVITY",id,before.toString(),a.toString(),trace);return a;}
   @PostMapping("/{id}/sessions")
-  public ActivityCatalog.Session createSession(@PathVariable("id") String id, @RequestBody Map<String,String> body, @RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestHeader(value="X-User-Id",defaultValue="") String actor, @RequestHeader(value="X-Trace-Id",defaultValue="") String trace) { if (!permissions.contains("session:write") && !permissions.contains("system:config")) throw new SecurityException("forbidden"); if(!com.cloudticket.activity.security.ScopeAccess.allows(permissions,scopes,"ACTIVITY",id)) throw new SecurityException("forbidden"); var s=catalog.createSession(id,body.get("venueId"),body.get("startsAt"),body.get("endsAt"),body.getOrDefault("status","DRAFT")); catalog.audit(actor,"SESSION_CREATED","SESSION",s.id(),null,s.toString(),trace); return s; }
+  public ActivityCatalog.Session createSession(@PathVariable("id") String id, @RequestBody Map<String,String> body, @RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestHeader(value="X-User-Id",defaultValue="") String actor, @RequestHeader(value="X-Trace-Id",defaultValue="") String trace) { if (!permissions.contains("session:write") && !permissions.contains("system:config")) throw new SecurityException("forbidden"); if(!com.cloudticket.activity.security.ScopeAccess.allows(permissions,scopes,"ACTIVITY",id)) throw new SecurityException("forbidden"); var s=catalog.createSession(id,body.get("venueId"),body.get("startsAt"),body.get("endsAt"),body.getOrDefault("status","DRAFT")); catalog.audit(actor,"SESSION_CREATED","SESSION",s.id(),null,s.toString(),trace); if(inventoryClient!=null){var seats=catalog.sessionSeatSnapshots(s.id()).stream().map(x->Map.<String,Object>of("id",x.id(),"rowLabel",x.rowLabel(),"seatNumber",x.seatNumber(),"areaLabel",x.areaLabel(),"displayName",x.displayName(),"seatType",x.seatType(),"x",x.x(),"y",x.y(),"status",x.status())).toList(); inventoryClient.provision(s.id(),id,seats);} return s; }
   @PutMapping("/{activityId}/sessions/{sessionId}")
   public ActivityCatalog.Session updateSession(@PathVariable("activityId") String activityId, @PathVariable("sessionId") String sessionId, @RequestBody Map<String,String> body, @RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestHeader(value="X-User-Id",defaultValue="") String actor, @RequestHeader(value="X-Trace-Id",defaultValue="") String trace) { if (!permissions.contains("session:write") && !permissions.contains("system:config")) throw new SecurityException("forbidden"); if(!com.cloudticket.activity.security.ScopeAccess.allows(permissions,scopes,"ACTIVITY",activityId)) throw new SecurityException("forbidden"); var s=catalog.updateSession(sessionId,body.get("startsAt"),body.get("endsAt"),body.getOrDefault("status","DRAFT")); catalog.audit(actor,"SESSION_UPDATED","SESSION",sessionId,null,s.toString(),trace); return s; }
   @PostMapping("/{activityId}/sessions/{sessionId}/publish")
