@@ -23,6 +23,12 @@
 - Refunds are now limited to `PAID` orders.
 - Verification: full Maven tests PASS; Vitest 11 files/20 tests PASS; Vite build PASS; rebuilt `activity-service`, `order-service`, `inventory-service`, `web`. Live run: session price 19900 → 2-seat order `amount_minor=39800` → payment intent `ALIPAY` with QR → pay returned `payment=SUCCESS, order=PAID`; MySQL showed both seats `SOLD`, locks `CONFIRMED`, and outbox `PaymentSucceeded` published to Kafka.
 
+## 2026-09-16 Public activity list pagination and filters
+
+- `GET /api/activities` now accepts `keyword`, `organizer`, `page` and `size` and returns `items/page/size/total/totalPages`; only activities with an `ONSALE` session are listed.
+- The user page shows name and organizer filters, a paginated grid (12 per page) and compact cards whose minimum row height dropped from 405px to 270px.
+- Verification: Vitest 11 files/21 tests PASS; Vite build PASS; rebuilt `activity-service` and `web`. Live run: `page=0&size=2` returned 2 items of 4 total with 2 pages; keyword `支付测试` returned 1 matching activity; an unknown organizer returned 0.
+
 | Check | Command | Result |
 |---|---|---|
 | Auth and service unit tests | `mvn -q -pl services/auth-service,services/gateway-service,services/activity-service,services/order-service,services/inventory-service -am test` | PASS |
