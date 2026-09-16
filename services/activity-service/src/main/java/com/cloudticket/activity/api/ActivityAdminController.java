@@ -4,6 +4,7 @@ import com.cloudticket.activity.service.ActivityCatalog;
 import com.cloudticket.activity.client.InventorySeatProvisionClient;
 import java.util.List;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -12,6 +13,7 @@ public class ActivityAdminController {
   private final ActivityCatalog catalog;
   private final InventorySeatProvisionClient inventoryClient;
   public ActivityAdminController(ActivityCatalog catalog) { this(catalog, null); }
+  @Autowired
   public ActivityAdminController(ActivityCatalog catalog, InventorySeatProvisionClient inventoryClient) { this.catalog = catalog; this.inventoryClient = inventoryClient; }
   private void allowed(String permissions) { if (!permissions.contains("activity:read") && !permissions.contains("activity:write") && !permissions.contains("activity:publish") && !permissions.contains("system:config")) throw new SecurityException("forbidden"); }
   private void require(String permissions, String permission) { if (!permissions.contains(permission) && !permissions.contains("system:config")) throw new SecurityException("forbidden"); }
