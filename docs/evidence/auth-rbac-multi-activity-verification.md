@@ -6,6 +6,15 @@
 - Admin activity creation now opens a modal; activity configuration exposes real venue selection, venue creation, seat-template CRUD, and session time validation with linked end-time minimum.
 - Verification: full Maven tests PASS; Vitest 10 files/17 tests PASS; Vite production build PASS; `docker compose config --quiet` PASS.
 
+## 2026-09-16 Standalone venue inventory and seat layout
+
+- `venue.activity_id` is now nullable, so venues are independent of activities; `venue_seat` and `seat` carry `area_label`, `display_name`, `seat_type`, coordinates, and enabled state.
+- Admin console exposes a top-level “场馆与库存” page with venue CRUD and seat-layout generation (`GRID` and per-row `ROWS`), plus single-seat add/delete and a live preview.
+- Activity management now only edits title/organizer and manages sessions; sessions can be created, edited, published, and taken offline with real venue selection.
+- Creating a session provisions `inventory_seat` in the inventory service with the same seat IDs and layout, so the public seat map reads real database data.
+- Docker Maven builds now use an Aliyun mirror via `maven-settings.xml` to avoid intermittent Central TLS handshake failures.
+- Verification: full Maven tests PASS; Vitest 10 files/17 tests PASS; Vite build PASS; rebuilt and recreated `activity-service`, `inventory-service`, and `web`; live flow (login → venue → layout → activity → session → public seats) returned 6 seats with area/display/coordinates.
+
 | Check | Command | Result |
 |---|---|---|
 | Auth and service unit tests | `mvn -q -pl services/auth-service,services/gateway-service,services/activity-service,services/order-service,services/inventory-service -am test` | PASS |
