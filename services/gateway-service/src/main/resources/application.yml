@@ -3,6 +3,12 @@ server:
 spring:
   application:
     name: gateway-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
 cloudticket:
   auth:
     jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:dev-only-change-me}
+  auth-service-base-url: ${AUTH_SERVICE_BASE_URL:lb://auth-service}
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}

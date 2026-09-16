@@ -11,11 +11,12 @@ import org.junit.jupiter.api.Test;
 class JwtAuthenticationFilterTest {
   @Test void acceptsSignedUnexpiredTokenAndExtractsTrustedClaims() throws Exception {
     String secret = "test-signing-key-with-enough-length";
-    String token = sign(secret, "{\"sub\":\"u-1\",\"jti\":\"j-1\",\"roles\":[\"USER\"],\"permissions\":[\"order:read\"],\"scopeVersion\":3,\"iat\":1,\"exp\":4102444800}");
+    String token = sign(secret, "{\"sub\":\"u-1\",\"jti\":\"j-1\",\"roles\":[\"USER\"],\"permissions\":[\"order:read\"],\"scopes\":[\"ACTIVITY:a1\"],\"scopeVersion\":3,\"iat\":1,\"exp\":4102444800}");
     var claims = new JwtTokenVerifier(secret).verify(token);
     assertEquals("u-1", claims.subject());
     assertEquals("USER", claims.roles());
     assertEquals("order:read", claims.permissions());
+    assertEquals("ACTIVITY:a1", claims.scopes());
     assertEquals("3", claims.scopeVersion());
   }
   @Test void rejectsExpiredAndTamperedTokens() throws Exception {

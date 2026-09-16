@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS auth_revoked_access_token (
+  jti CHAR(36) PRIMARY KEY,
+  expires_at TIMESTAMP(6) NOT NULL,
+  revoked_at TIMESTAMP(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
+);

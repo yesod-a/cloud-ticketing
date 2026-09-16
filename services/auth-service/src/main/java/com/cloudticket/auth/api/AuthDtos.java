@@ -6,6 +6,7 @@ public final class AuthDtos {
  public record RegisterRequest(String phone,String email,@NotBlank @Size(min=8,max=128) String password,String nickname){}
  public record LoginRequest(@NotBlank String identifier,@NotBlank String password){}
  public record RefreshRequest(@NotBlank String refreshToken){}
+ public record LogoutRequest(@NotBlank String refreshToken,String accessToken){}
  public record PasswordForgotRequest(@NotBlank String identifier){}
  public record PasswordResetRequest(@NotBlank String token,@NotBlank @Size(min=8,max=128) String password){}
  public record UserView(String id,String phone,String email,String nickname,String status){}

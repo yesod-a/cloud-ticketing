@@ -18,4 +18,4 @@ docker compose config
 
 Run `docker compose config` to inspect the local stack, then `docker compose up -d --build` to build and start it. The web client is exposed on `http://localhost:5173` and proxies `/api/` to Gateway on port `8080`.
 
-Set `AUTH_JWT_SIGNING_KEY` to a strong deployment secret before use outside local development. See `docs/evidence/auth-rbac-multi-activity-verification.md` for recorded verification limits.
+Set `AUTH_JWT_SIGNING_KEY` to a strong deployment secret before use outside local development. See `docs/evidence/auth-rbac-multi-activity-verification.md` for recorded verification limits. Future payment, ticket, and reconciliation event compatibility is documented in `docs/contracts/`; those services are not enabled in this phase.

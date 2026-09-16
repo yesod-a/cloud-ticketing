@@ -1,0 +1,2 @@
+ALTER TABLE order_outbox ADD COLUMN aggregate_type VARCHAR(64) NOT NULL DEFAULT 'ORDER';
+ALTER TABLE order_outbox ADD COLUMN schema_version INT NOT NULL DEFAULT 1;

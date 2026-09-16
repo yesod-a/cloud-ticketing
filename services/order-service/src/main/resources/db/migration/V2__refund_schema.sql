@@ -1,0 +1,13 @@
+CREATE TABLE IF NOT EXISTS refund_request (
+  id CHAR(36) PRIMARY KEY,
+  order_id CHAR(36) NOT NULL,
+  user_id CHAR(36) NOT NULL,
+  reason VARCHAR(500) NOT NULL,
+  status VARCHAR(32) NOT NULL DEFAULT 'REQUESTED',
+  reviewed_by CHAR(36) NULL,
+  reviewed_at TIMESTAMP NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_refund_order (order_id),
+  CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
+);
