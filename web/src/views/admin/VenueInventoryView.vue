@@ -36,7 +36,7 @@ onMounted(loadVenues)
     <div class="pagination"><button class="secondary-btn" :disabled="page===0" @click="page--;loadVenues()">上一页</button><span>第 {{ page+1 }} 页 · 共 {{ total }} 条</span><button class="secondary-btn" :disabled="(page+1)*10>=total" @click="page++;loadVenues()">下一页</button></div>
 
     <div v-if="showLayoutModal" class="modal-backdrop" @click.self="showLayoutModal=false"><section class="modal-card wide">
-      <div class="admin-heading"><div><h3>{{ selectedVenue?.name }} · 座位布局</h3><small>{{ seats.length }} 个座位</small></div><button class="secondary-btn" @click="showLayoutModal=false">关闭</button></div>
+      <div class="admin-heading"><div><h3>{{ selectedVenue?.name }} · 座位布局</h3><small>{{ seats.length }} 个座位</small></div><button class="icon-btn" @click="showLayoutModal=false">×</button></div>
       <form v-if="can('seat-layout:write')" class="admin-form layout-form" @submit.prevent="generateLayout">
         <label>生成方式<select v-model="layoutMode"><option value="GRID">统一行列</option><option value="ROWS">每行独立列数</option></select></label>
         <label>区域<input v-model="layoutArea" placeholder="如 VIP 区 / 看台"></label>
