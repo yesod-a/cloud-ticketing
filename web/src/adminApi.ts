@@ -6,17 +6,20 @@ export const createAdminActivity=(title:string,organizer:string)=>api<AdminActiv
 export const updateAdminActivity=(id:string,title:string,organizer:string)=>api<AdminActivity>(`/api/admin/activities/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,organizer})})
 export const publishAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/publish`,{method:'POST'})
 export const offlineAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/offline`,{method:'POST'})
+export const deleteAdminActivity=(id:string)=>api<{code:string}>(`/api/admin/activities/${id}`,{method:'DELETE'})
 export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string}
 export const adminActivitySessions=(activityId:string,params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminSession>>(`/api/admin/activities/${activityId}/sessions?${q}`)}
 export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
 export const updateAdminSession=(activityId:string,sessionId:string,body:{startsAt:string;endsAt:string;status?:string})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
 export const publishAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/publish`,{method:'POST'})
 export const offlineAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/offline`,{method:'POST'})
+export const deleteAdminSession=(activityId:string,sessionId:string)=>api<{code:string}>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'DELETE'})
 export type AdminVenue={id:string;activityId:string|null;name:string;address:string;capacity:number}
 export const adminVenuePage=(params:{keyword?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminVenue>>(`/api/admin/venues?${q}`)}
 export const adminVenues=(activityId?:string)=>api<{items:AdminVenue[]}>(`/api/admin/venues?activityId=${encodeURIComponent(activityId||'')}`)
 export const createAdminVenue=(name:string,address:string)=>api<AdminVenue>('/api/admin/venues',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,address})})
 export const updateAdminVenue=(id:string,name:string,address:string)=>api<AdminVenue>(`/api/admin/venues/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,address})})
+export const deleteAdminVenue=(id:string)=>api<{code:string}>(`/api/admin/venues/${id}`,{method:'DELETE'})
 export type AdminVenueSeat={id:string;venueId:string;areaLabel:string;rowLabel:string;seatNumber:number;displayName:string;x:number;y:number;seatType:string;enabled:boolean;status:string}
 export const adminVenueSeats=(venueId:string)=>api<{items:AdminVenueSeat[]}>(`/api/admin/venues/${venueId}/seats`)
 export const createAdminVenueSeat=(venueId:string,body:{areaLabel?:string;rowLabel:string;seatNumber:number;displayName?:string;x?:number;y?:number;seatType?:string;enabled?:boolean})=>api<AdminVenueSeat>(`/api/admin/venues/${venueId}/seats`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
