@@ -21,7 +21,9 @@ describe('admin console', () => {
 
   it('opens activity creation modal and exposes venue configuration controls', async () => {
     const wrapper = mount(AdminLayout, { props: { permissions: ['activity:write', 'session:write', 'venue:write', 'seat-layout:write'] } })
-    await wrapper.get('.floating-create').trigger('click')
+    const createButton = wrapper.findAll('button').find(button => button.text().includes('创建活动'))
+    expect(createButton).toBeTruthy()
+    await createButton!.trigger('click')
     expect(wrapper.text()).toContain('创建活动')
     expect(wrapper.find('.modal-backdrop').exists()).toBe(true)
   })
