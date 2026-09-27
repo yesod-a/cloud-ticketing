@@ -1,51 +1,89 @@
 package com.cloudticket.order.api;
 
-import com.cloudticket.order.OrderStore;
+import com.cloudticket.common.security.CallerContext;
+import com.cloudticket.common.security.CallerContextHolder;
+import com.cloudticket.common.security.RequirePermission;
+import com.cloudticket.common.security.RequireScope;
 import com.cloudticket.order.PaymentService;
+import com.cloudticket.order.persistence.OrderRepository;
+import com.cloudticket.order.persistence.RefundRepository;
 import com.cloudticket.order.security.OrderAuthorization;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("/api/orders")
 public class OrderController {
-  private final OrderStore store;
+
+  private final OrderRepository orders;
+  private final RefundRepository refunds;
   private final PaymentService payments;
   private final OrderAuthorization authorization = new OrderAuthorization();
-  public OrderController(OrderStore store) { this(store, null); }
-  @org.springframework.beans.factory.annotation.Autowired
-  public OrderController(OrderStore store, PaymentService payments) { this.store = store; this.payments = payments; }
+
+  public OrderController(OrderRepository orders, RefundRepository refunds, PaymentService payments) {
+    this.orders = orders;
+    this.refunds = refunds;
+    this.payments = payments;
+  }
 
   @PostMapping
   public Map<String, Object> create(@RequestHeader("X-User-Id") String user, @RequestBody Map<String, Object> body) {
-    return store.create(user, String.valueOf(body.getOrDefault("sessionId", "")), String.valueOf(body.getOrDefault("seatIds", "")), String.valueOf(body.getOrDefault("idempotencyKey", "")));
+    return OrderViews.order(orders.create(user, text(body, "sessionId"), text(body, "seatIds"),
+        text(body, "idempotencyKey")));
   }
 
   @GetMapping("/me")
-  public Map<String, Object> mine(@RequestHeader("X-User-Id") String user, @RequestParam(name = "page", defaultValue = "0") int page, @RequestParam(name = "size", defaultValue = "20") int size) {
-    return store.pageForUser(user, page, size).asMap();
+  public Map<String, Object> mine(@RequestHeader("X-User-Id") String user,
+                                  @RequestParam(name = "page", defaultValue = "0") int page,
+                                  @RequestParam(name = "size", defaultValue = "20") int size) {
+    return OrderViews.ordersPage(orders.pageForUser(user, page, size));
   }
 
+  @RequirePermission("order:read")
   @GetMapping("/admin")
-  public Map<String, Object> admin(@RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions, @RequestHeader(value = "X-User-Scopes", defaultValue = "") String scopes, @RequestParam(name = "status", defaultValue = "") String status, @RequestParam(name = "page", defaultValue = "0") int page, @RequestParam(name = "size", defaultValue = "20") int size) {
-    if (!permissions.contains("order:read") && !permissions.contains("system:config")) throw new SecurityException("forbidden");
-    return store.pageForAdmin(status, page, size, permissions, scopes).asMap();
+  public Map<String, Object> admin(@RequestParam(name = "status", defaultValue = "") String status,
+                                   @RequestParam(name = "page", defaultValue = "0") int page,
+                                   @RequestParam(name = "size", defaultValue = "20") int size) {
+    CallerContext caller = CallerContextHolder.current();
+    return OrderViews.ordersPage(orders.pageForAdmin(status, page, size, caller.permissions(), caller.scopes()));
   }
 
   @GetMapping("/{id}")
-  public ResponseEntity<?> get(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions, @RequestHeader(value = "X-User-Scopes", defaultValue = "") String scopes) {
-    return store.find(id).filter(order -> authorization.canRead(user, String.valueOf(order.get("userId")), permissions, scopes, "SESSION", String.valueOf(order.get("sessionId")))).map(ResponseEntity::ok).orElseGet(() -> ResponseEntity.notFound().build());
+  public ResponseEntity<?> get(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user) {
+    CallerContext caller = CallerContextHolder.current();
+    return orders.find(id)
+        .filter(order -> authorization.canRead(user, order.getUserId(), caller.permissions(), caller.scopes(),
+            "SESSION", order.getSessionId()))
+        .map(order -> ResponseEntity.ok(OrderViews.order(order)))
+        .orElseGet(() -> ResponseEntity.notFound().build());
   }
 
   @PostMapping("/{id}/cancel")
-  public ResponseEntity<?> cancel(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions, @RequestHeader(value = "X-User-Scopes", defaultValue = "") String scopes) {
-    return store.find(id).filter(order -> authorization.canWrite(user, String.valueOf(order.get("userId")), permissions, scopes, "SESSION", String.valueOf(order.get("sessionId")))).map(order -> ResponseEntity.ok(store.cancel(id))).orElseGet(() -> ResponseEntity.notFound().build());
+  public ResponseEntity<?> cancel(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user) {
+    CallerContext caller = CallerContextHolder.current();
+    return orders.find(id)
+        .filter(order -> authorization.canWrite(user, order.getUserId(), caller.permissions(), caller.scopes(),
+            "SESSION", order.getSessionId()))
+        .map(order -> ResponseEntity.ok(OrderViews.order(orders.cancel(id))))
+        .orElseGet(() -> ResponseEntity.notFound().build());
   }
 
   @PostMapping("/{id}/refund")
-  public ResponseEntity<?> requestRefund(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestBody Map<String,String> body) {
-    return store.find(id).filter(order -> authorization.canRequestRefund(user, String.valueOf(order.get("userId")))).map(order -> ResponseEntity.ok(store.requestRefund(id, user, body.get("reason")))).orElseGet(() -> ResponseEntity.notFound().build());
+  public ResponseEntity<?> requestRefund(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user,
+                                         @RequestBody Map<String, String> body) {
+    return orders.find(id)
+        .filter(order -> authorization.canRequestRefund(user, order.getUserId()))
+        .map(order -> ResponseEntity.ok(OrderViews.refund(refunds.request(id, user, body.get("reason")))))
+        .orElseGet(() -> ResponseEntity.notFound().build());
   }
 
   @GetMapping("/{id}/payment")
@@ -54,7 +92,8 @@ public class OrderController {
   }
 
   @PostMapping("/{id}/payments")
-  public Map<String, Object> createPayment(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user, @RequestBody(required = false) Map<String, Object> body) {
+  public Map<String, Object> createPayment(@PathVariable("id") String id, @RequestHeader("X-User-Id") String user,
+                                           @RequestBody(required = false) Map<String, Object> body) {
     String method = body == null ? null : String.valueOf(body.getOrDefault("method", ""));
     return payments.intent(id, user, method);
   }
@@ -64,30 +103,33 @@ public class OrderController {
     return payments.pay(id, user);
   }
 
+  @RequirePermission("order:refund")
   @GetMapping("/admin/refunds")
-  public Map<String,Object> refunds(@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestParam(name="status",defaultValue="") String status, @RequestParam(name="page",defaultValue="0") int page, @RequestParam(name="size",defaultValue="20") int size) {
-    if (!authorization.canReviewRefund(permissions)) throw new SecurityException("forbidden");
-    return store.refunds(status,page,size,permissions,scopes).asMap();
+  public Map<String, Object> refunds(@RequestParam(name = "status", defaultValue = "") String status,
+                                     @RequestParam(name = "page", defaultValue = "0") int page,
+                                     @RequestParam(name = "size", defaultValue = "20") int size) {
+    CallerContext caller = CallerContextHolder.current();
+    return OrderViews.refundsPage(refunds.page(status, page, size, caller.permissions(), caller.scopes()));
   }
 
+  @RequirePermission("order:refund")
+  @RequireScope(type = "SESSION", id = "@refundScopes.session(#id)")
   @PostMapping("/admin/refunds/{id}/approve")
-  public Map<String,Object> approveRefund(@PathVariable("id") String id, @RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestHeader(value="X-User-Id",defaultValue="") String reviewer) {
-    requireRefundScope(id, permissions, scopes);
-    return store.reviewRefund(id,true,reviewer);
+  public Map<String, Object> approveRefund(@PathVariable("id") String id,
+                                           @RequestHeader(value = "X-User-Id", defaultValue = "") String reviewer) {
+    return OrderViews.refund(refunds.review(id, true, reviewer));
   }
-  public Map<String,Object> approveRefund(String id, String permissions, String reviewer) { if (!authorization.canReviewRefund(permissions)) throw new SecurityException("forbidden"); return store.reviewRefund(id,true,reviewer); }
 
+  @RequirePermission("order:refund")
+  @RequireScope(type = "SESSION", id = "@refundScopes.session(#id)")
   @PostMapping("/admin/refunds/{id}/reject")
-  public Map<String,Object> rejectRefund(@PathVariable("id") String id, @RequestHeader(value="X-User-Permissions",defaultValue="") String permissions, @RequestHeader(value="X-User-Scopes",defaultValue="") String scopes, @RequestHeader(value="X-User-Id",defaultValue="") String reviewer) {
-    requireRefundScope(id, permissions, scopes);
-    return store.reviewRefund(id,false,reviewer);
+  public Map<String, Object> rejectRefund(@PathVariable("id") String id,
+                                          @RequestHeader(value = "X-User-Id", defaultValue = "") String reviewer) {
+    return OrderViews.refund(refunds.review(id, false, reviewer));
   }
-  public Map<String,Object> rejectRefund(String id, String permissions, String reviewer) { if (!authorization.canReviewRefund(permissions)) throw new SecurityException("forbidden"); return store.reviewRefund(id,false,reviewer); }
 
-  private void requireRefundScope(String id, String permissions, String scopes) {
-    if (!authorization.canReviewRefund(permissions)) throw new SecurityException("forbidden");
-    var request = store.refund(id).orElseThrow(() -> new java.util.NoSuchElementException("refund request not found"));
-    var order = store.find(String.valueOf(request.get("orderId"))).orElseThrow(() -> new java.util.NoSuchElementException("order not found"));
-    if (!authorization.canReviewRefund(permissions, scopes, String.valueOf(order.get("sessionId")))) throw new SecurityException("forbidden");
+  private static String text(Map<String, Object> body, String key) {
+    Object value = body == null ? null : body.get(key);
+    return String.valueOf(value == null ? "" : value);
   }
 }

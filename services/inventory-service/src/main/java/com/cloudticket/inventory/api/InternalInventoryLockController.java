@@ -1,48 +1,48 @@
 package com.cloudticket.inventory.api;
 
+import com.cloudticket.common.security.RequireInternalToken;
 import com.cloudticket.inventory.service.InventoryReservationService;
-import java.util.Arrays;
-import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
 
+/** Lock protocol used by order-service while an order is being created, paid or cancelled. */
 @RestController
+@RequireInternalToken
 @RequestMapping("/api/internal/inventory/locks")
 public class InternalInventoryLockController {
-  private final InventoryReservationService reservations;
-  private final String internalToken;
 
-  public InternalInventoryLockController(InventoryReservationService reservations, @Value("${cloudticket.internal-service-token:dev-internal-token}") String internalToken) {
+  private final InventoryReservationService reservations;
+
+  public InternalInventoryLockController(InventoryReservationService reservations) {
     this.reservations = reservations;
-    this.internalToken = internalToken;
   }
 
   @PostMapping
-  public Map<String, Object> reserve(@RequestHeader(value = "X-Internal-Service-Token", defaultValue = "") String token, @RequestBody Map<String, Object> body) {
-    trusted(token);
-    String orderId = String.valueOf(body.getOrDefault("orderId", ""));
-    String sessionId = String.valueOf(body.getOrDefault("sessionId", ""));
-    Object rawSeats = body.get("seatIds");
-    List<String> seatIds = rawSeats instanceof List<?> values ? values.stream().map(String::valueOf).toList() : Arrays.stream(String.valueOf(rawSeats == null ? "" : rawSeats).split(",")).toList();
-    long ttl = body.get("ttlSeconds") instanceof Number number ? number.longValue() : 900;
-    var reservation = reservations.reserve(orderId, sessionId, seatIds, ttl);
-    return Map.of("orderId", reservation.orderId(), "sessionId", reservation.sessionId(), "seatIds", reservation.seatIds(), "expiresAt", reservation.expiresAt().toString());
+  public Map<String, Object> reserve(@RequestBody InventoryCommands.ReserveLocks body) {
+    var reservation = reservations.reserve(body.orderId(), body.sessionId(), body.seatIdsAsList(),
+        body.ttlOrDefault());
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("orderId", reservation.orderId());
+    response.put("sessionId", reservation.sessionId());
+    response.put("seatIds", reservation.seatIds());
+    response.put("expiresAt", reservation.expiresAt().toString());
+    return response;
   }
 
   @PostMapping("/{orderId}/release")
-  public Map<String, Object> release(@RequestHeader(value = "X-Internal-Service-Token", defaultValue = "") String token, @PathVariable String orderId) {
-    trusted(token);
+  public Map<String, Object> release(@PathVariable("orderId") String orderId) {
     reservations.release(orderId);
     return Map.of("orderId", orderId, "status", "RELEASED");
   }
 
   @PostMapping("/{orderId}/confirm")
-  public Map<String, Object> confirm(@RequestHeader(value = "X-Internal-Service-Token", defaultValue = "") String token, @PathVariable String orderId) {
-    trusted(token);
+  public Map<String, Object> confirm(@PathVariable("orderId") String orderId) {
     int sold = reservations.confirm(orderId);
     return Map.of("orderId", orderId, "status", "CONFIRMED", "soldSeats", sold);
   }
-
-  private void trusted(String token) { if (token == null || !token.equals(internalToken)) throw new SecurityException("internal authentication required"); }
 }

@@ -47,20 +47,31 @@ services:
       ACTIVITY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       INVENTORY_BASE_URL: "http://inventory-service:8082"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      PUBLIC_READ_CACHE_ENABLED: "${PUBLIC_READ_CACHE_ENABLED:-true}"
+      PUBLIC_READ_CACHE_LOCAL_TTL_MS: "${PUBLIC_READ_CACHE_LOCAL_TTL_MS:-3000}"
+      PUBLIC_READ_CACHE_REDIS_TTL_MS: "${PUBLIC_READ_CACHE_REDIS_TTL_MS:-30000}"
       NACOS_SERVER_ADDR: nacos:8848
-    depends_on: { mysql: { condition: service_healthy }, nacos: { condition: service_started } }
+    depends_on: { mysql: { condition: service_healthy }, redis: { condition: service_healthy }, nacos: { condition: service_started } }
   inventory-service:
     build: { context: ., dockerfile: Dockerfile.inventory }
     environment:
       SERVER_PORT: 8082
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       INVENTORY_DB_URL: "jdbc:mysql://mysql:3306/inventory_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
       INVENTORY_DB_USERNAME: root
       INVENTORY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      CLOUDTICKET_SEAT_BITMAP_ENABLED: "${CLOUDTICKET_SEAT_BITMAP_ENABLED:-true}"
+      CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED: "${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:-false}"
+      CLOUDTICKET_INVENTORY_EVENTS_ENABLED: "${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:-false}"
+      CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED: "${CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED:-false}"
       NACOS_SERVER_ADDR: nacos:8848
-    depends_on: { redis: { condition: service_healthy }, mysql: { condition: service_healthy }, nacos: { condition: service_started } }
+    depends_on: { redis: { condition: service_healthy }, mysql: { condition: service_healthy }, kafka: { condition: service_started }, nacos: { condition: service_started } }
   order-service:
     build: { context: ., dockerfile: Dockerfile.order }
     environment:
@@ -83,6 +94,9 @@ services:
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      AUTH_STATUS_CACHE_ENABLED: "${AUTH_STATUS_CACHE_ENABLED:-true}"
+      AUTH_STATUS_CACHE_LOCAL_TTL_MS: "${AUTH_STATUS_CACHE_LOCAL_TTL_MS:-1000}"
+      AUTH_STATUS_CACHE_REDIS_TTL_MS: "${AUTH_STATUS_CACHE_REDIS_TTL_MS:-3000}"
       NACOS_SERVER_ADDR: nacos:8848
     ports: ["${GATEWAY_PORT:-8080}:8080"]
     depends_on: { auth-service: { condition: service_healthy }, redis: { condition: service_healthy }, nacos: { condition: service_started } }

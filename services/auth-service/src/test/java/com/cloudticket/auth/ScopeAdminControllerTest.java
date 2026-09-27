@@ -1,95 +1,181 @@
 package com.cloudticket.auth;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.cloudticket.auth.api.AuthCommands;
 import com.cloudticket.auth.api.ScopeAdminController;
+import com.cloudticket.auth.persistence.entity.AuthScopeEntity;
+import com.cloudticket.auth.persistence.entity.AuthUserEntity;
+import com.cloudticket.auth.persistence.mapper.AuthScopeMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
+import com.cloudticket.common.security.AuditEntry;
+import com.cloudticket.common.security.AuditSink;
+import com.cloudticket.common.security.CallerContext;
+import com.cloudticket.common.security.CallerContextHolder;
 import java.util.Map;
+import java.util.UUID;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
-import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.server.ResponseStatusException;
 
 class ScopeAdminControllerTest {
+
+  private final AuthScopeMapper scopes = mock(AuthScopeMapper.class);
+  private final AuthUserMapper users = mock(AuthUserMapper.class);
+  private final AuditSink auditSink = mock(AuditSink.class);
+
+  private ScopeAdminController controller() {
+    return TestAspects.authorized(new ScopeAdminController(scopes, users), auditSink);
+  }
+
   @Test
   void rejectsScopeCreationWithoutScopePermission() {
-    ScopeAdminController controller = new ScopeAdminController(mock(JdbcTemplate.class));
-    assertThrows(SecurityException.class, () -> controller.create(
-        Map.of("resourceType", "ACTIVITY", "resourceId", "activity-1"), "activity:read", "admin", "trace"));
+    assertThrows(SecurityException.class, () -> asCaller("activity:read",
+        () -> controller().create(new AuthCommands.CreateScope("ACTIVITY", UUID.randomUUID().toString()))));
+    verify(scopes, never()).insert(any(AuthScopeEntity.class));
   }
 
   @Test
   void rejectsUnsupportedResourceType() {
-    ScopeAdminController controller = new ScopeAdminController(mock(JdbcTemplate.class));
-    assertThrows(IllegalArgumentException.class, () -> controller.create(
-        Map.of("resourceType", "UNKNOWN", "resourceId", "resource-1"), "scope:manage", "admin", "trace"));
+    assertThrows(IllegalArgumentException.class, () -> asCaller("scope:manage",
+        () -> controller().create(new AuthCommands.CreateScope("UNKNOWN", UUID.randomUUID().toString()))));
+  }
+
+  @Test
+  void scopeCreationAuditsTheNewGrant() {
+    UUID resourceId = UUID.randomUUID();
+
+    Map<String, Object> response = asCaller("scope:manage",
+        () -> controller().create(new AuthCommands.CreateScope("ACTIVITY", resourceId.toString())));
+
+    assertEquals("ACTIVITY", response.get("resourceType"));
+    assertEquals(true, response.get("changed"));
+    verify(auditSink).record(new AuditEntry("actor-1", "SCOPE_CREATED", "SCOPE",
+        String.valueOf(response.get("id")), null, "ACTIVITY:" + resourceId, "trace-1", null));
+  }
+
+  @Test
+  void duplicateScopeCreationReturnsTheExistingGrantWithoutAudit() {
+    UUID resourceId = UUID.randomUUID();
+    AuthScopeEntity existing = new AuthScopeEntity();
+    existing.setId(UUID.randomUUID());
+    existing.setResourceType("ACTIVITY");
+    existing.setResourceId(resourceId);
+    existing.setStatus("ACTIVE");
+    when(scopes.insert(any(AuthScopeEntity.class))).thenThrow(new DuplicateKeyException("duplicate"));
+    when(scopes.findByResource("ACTIVITY", resourceId)).thenReturn(existing);
+
+    Map<String, Object> response = asCaller("scope:manage",
+        () -> controller().create(new AuthCommands.CreateScope("ACTIVITY", resourceId.toString())));
+
+    assertEquals(existing.getId().toString(), response.get("id"));
+    assertEquals(false, response.get("changed"));
+    verify(auditSink, never()).record(any());
   }
 
   @Test
   void bindsUserAndBumpsScopeVersion() {
-    JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.queryForObject(contains("auth_user"), eq(Integer.class), eq("user-1"))).thenReturn(1);
-    when(jdbc.queryForObject(contains("auth_scope"), eq(Integer.class), eq("scope-1"))).thenReturn(1);
-    when(jdbc.update(anyString(), any(Object[].class))).thenReturn(1);
-    ScopeAdminController controller = new ScopeAdminController(jdbc);
+    UUID scopeId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    existingScope(scopeId);
+    existingUser(userId);
+    when(scopes.bind(userId, scopeId)).thenReturn(1);
 
-    Map<String, Object> result = controller.bind("scope-1", "user-1", "scope:manage", "admin", "trace");
+    Map<String, Object> result = asCaller("scope:manage",
+        () -> controller().bind(scopeId.toString(), userId.toString()));
 
-    assertEquals("scope-1", result.get("scopeId"));
-    verify(jdbc).update(contains("scope_version=scope_version+1"), eq("user-1"));
+    assertEquals(scopeId.toString(), result.get("scopeId"));
+    verify(scopes).bumpScopeVersion(userId);
+    verify(auditSink).record(new AuditEntry("actor-1", "SCOPE_BOUND", "SCOPE", scopeId.toString(),
+        null, userId.toString(), "trace-1", null));
   }
 
   @Test
   void duplicateBindingDoesNotBumpVersionOrWriteAudit() {
-    JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.queryForObject(contains("auth_user"), eq(Integer.class), eq("user-1"))).thenReturn(1);
-    when(jdbc.queryForObject(contains("auth_scope"), eq(Integer.class), eq("scope-1"))).thenReturn(1);
-    when(jdbc.update(startsWith("INSERT IGNORE"), any(Object[].class))).thenReturn(0);
-    ScopeAdminController controller = new ScopeAdminController(jdbc);
+    UUID scopeId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    existingScope(scopeId);
+    existingUser(userId);
+    when(scopes.bind(userId, scopeId)).thenReturn(0);
 
-    controller.bind("scope-1", "user-1", "scope:manage", "admin", "trace");
+    asCaller("scope:manage", () -> controller().bind(scopeId.toString(), userId.toString()));
 
-    verify(jdbc, never()).update(contains("scope_version=scope_version+1"), any(Object[].class));
-    verify(jdbc, never()).update(contains("INSERT INTO auth_audit_log"), any(Object[].class));
+    verify(scopes, never()).bumpScopeVersion(any());
+    verify(auditSink, never()).record(any());
+  }
+
+  @Test
+  void unbindingBumpsTheVersionAndAudits() {
+    UUID scopeId = UUID.randomUUID();
+    UUID userId = UUID.randomUUID();
+    existingScope(scopeId);
+    existingUser(userId);
+    when(scopes.unbind(userId, scopeId)).thenReturn(1);
+
+    asCaller("scope:manage", () -> controller().unbind(scopeId.toString(), userId.toString()));
+
+    verify(scopes).bumpScopeVersion(userId);
+    verify(auditSink).record(new AuditEntry("actor-1", "SCOPE_UNBOUND", "SCOPE", scopeId.toString(),
+        null, userId.toString(), "trace-1", null));
   }
 
   @Test
   void rejectsBindingUnknownUserWithNotFound() {
-    JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.queryForObject(contains("auth_user"), eq(Integer.class), eq("missing-user"))).thenReturn(0);
-    ScopeAdminController controller = new ScopeAdminController(jdbc);
+    UUID scopeId = UUID.randomUUID();
+    existingScope(scopeId);
 
-    var error = assertThrows(ResponseStatusException.class,
-        () -> controller.bind("scope-1", "missing-user", "scope:manage", "admin", "trace"));
+    var error = assertThrows(ResponseStatusException.class, () -> asCaller("scope:manage",
+        () -> controller().bind(scopeId.toString(), UUID.randomUUID().toString())));
 
     assertEquals(404, error.getStatusCode().value());
-    verify(jdbc, never()).update(anyString(), any(Object[].class));
+    verify(scopes, never()).bind(any(), any());
   }
 
   @Test
   void rejectsBindingUnknownScopeWithNotFound() {
-    JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.queryForObject(contains("auth_user"), eq(Integer.class), eq("user-1"))).thenReturn(1);
-    when(jdbc.queryForObject(contains("auth_scope"), eq(Integer.class), eq("missing-scope"))).thenReturn(0);
-    ScopeAdminController controller = new ScopeAdminController(jdbc);
+    UUID userId = UUID.randomUUID();
+    existingUser(userId);
 
-    var error = assertThrows(ResponseStatusException.class,
-        () -> controller.bind("missing-scope", "user-1", "scope:manage", "admin", "trace"));
+    var error = assertThrows(ResponseStatusException.class, () -> asCaller("scope:manage",
+        () -> controller().bind(UUID.randomUUID().toString(), userId.toString())));
 
     assertEquals(404, error.getStatusCode().value());
-    verify(jdbc, never()).update(anyString(), any(Object[].class));
+    verify(scopes, never()).bind(any(), any());
   }
 
   @Test
-  void rejectsUnbindingUnknownUserWithNotFound() {
-    JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    when(jdbc.queryForObject(contains("auth_user"), eq(Integer.class), eq("missing-user"))).thenReturn(0);
-    ScopeAdminController controller = new ScopeAdminController(jdbc);
-
-    var error = assertThrows(ResponseStatusException.class,
-        () -> controller.unbind("scope-1", "missing-user", "scope:manage", "admin", "trace"));
+  void rejectsAMalformedIdentifierWithNotFound() {
+    var error = assertThrows(ResponseStatusException.class, () -> asCaller("scope:manage",
+        () -> controller().bind("not-a-uuid", UUID.randomUUID().toString())));
 
     assertEquals(404, error.getStatusCode().value());
-    verify(jdbc, never()).update(anyString(), any(Object[].class));
+  }
+
+  private void existingScope(UUID id) {
+    AuthScopeEntity scope = new AuthScopeEntity();
+    scope.setId(id);
+    scope.setResourceType("ACTIVITY");
+    scope.setResourceId(UUID.randomUUID());
+    scope.setStatus("ACTIVE");
+    when(scopes.selectById(id)).thenReturn(scope);
+  }
+
+  private void existingUser(UUID id) {
+    AuthUserEntity user = new AuthUserEntity();
+    user.setId(id);
+    user.setStatus("ACTIVE");
+    when(users.selectById(id)).thenReturn(user);
+  }
+
+  private static <T> T asCaller(String permissions, Supplier<T> action) {
+    return CallerContextHolder.scoped(
+        new CallerContext(permissions, "", "actor-1", "trace-1", ""), action);
   }
 }

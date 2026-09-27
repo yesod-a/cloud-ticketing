@@ -1,142 +1,180 @@
 package com.cloudticket.auth.api;
 
-import java.util.*;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.cloudticket.auth.persistence.entity.AuthScopeEntity;
+import com.cloudticket.auth.persistence.entity.AuthUserEntity;
+import com.cloudticket.auth.persistence.mapper.AuthScopeMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
+import com.cloudticket.common.security.AuditAction;
+import com.cloudticket.common.security.RequirePermission;
+import com.cloudticket.common.web.PageResult;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 import org.springframework.dao.DuplicateKeyException;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.web.bind.annotation.*;
 
 /** Administrative API for assigning resource scopes to operators. */
 @RestController
 @RequestMapping("/api/admin/auth/scopes")
 public class ScopeAdminController {
+
   private static final Set<String> RESOURCE_TYPES = Set.of("ACTIVITY", "VENUE", "SESSION", "AREA");
-  private final JdbcTemplate jdbc;
 
-  public ScopeAdminController(JdbcTemplate jdbc) {
-    this.jdbc = jdbc;
+  private final AuthScopeMapper scopes;
+  private final AuthUserMapper users;
+
+  public ScopeAdminController(AuthScopeMapper scopes, AuthUserMapper users) {
+    this.scopes = scopes;
+    this.users = users;
   }
 
+  @RequirePermission("scope:manage")
   @GetMapping
-  public Map<String, Object> list(
-      @RequestParam(name = "resourceType", defaultValue = "") String resourceType,
-      @RequestParam(name = "status", defaultValue = "") String status,
-      @RequestParam(name = "page", defaultValue = "0") int page,
-      @RequestParam(name = "size", defaultValue = "20") int size,
-      @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions) {
-    require(permissions);
-    int p = Math.max(0, page), s = Math.min(100, Math.max(1, size));
-    String type = resourceType == null ? "" : resourceType.trim().toUpperCase(Locale.ROOT);
-    String state = status == null ? "" : status.trim().toUpperCase(Locale.ROOT);
-    Integer total = jdbc.queryForObject(
-        "SELECT COUNT(*) FROM auth_scope WHERE (?='' OR resource_type=?) AND (?='' OR status=?)",
-        Integer.class, type, type, state, state);
-    var items = jdbc.query(
-        "SELECT BIN_TO_UUID(s.id) id,s.resource_type,COALESCE(BIN_TO_UUID(s.resource_id),'') resource_id,s.status,s.created_at,(SELECT COUNT(*) FROM auth_user_scope us WHERE us.scope_id=s.id) user_count "
-            + "FROM auth_scope s WHERE (?='' OR s.resource_type=?) AND (?='' OR s.status=?) ORDER BY s.resource_type,s.resource_id LIMIT ? OFFSET ?",
-        (r, n) -> Map.of("id", r.getString("id"), "resourceType", r.getString("resource_type"),
-            "resourceId", Objects.toString(r.getString("resource_id"), ""), "status", r.getString("status"),
-            "userCount", r.getInt("user_count"), "createdAt", r.getTimestamp("created_at").toInstant().toString()),
-        type, type, state, state, s, p * s);
-    return page(items, p, s, total == null ? 0 : total);
+  public Map<String, Object> list(@RequestParam(name = "resourceType", defaultValue = "") String resourceType,
+                                  @RequestParam(name = "status", defaultValue = "") String status,
+                                  @RequestParam(name = "page", defaultValue = "0") int page,
+                                  @RequestParam(name = "size", defaultValue = "20") int size) {
+    int safePage = PageResult.safePage(page);
+    int safeSize = PageResult.safeSize(size);
+    Page<AuthScopeEntity> result = scopes.selectAdminPage(new Page<>(safePage + 1L, safeSize),
+        resourceType == null ? "" : resourceType.trim().toUpperCase(Locale.ROOT),
+        status == null ? "" : status.trim().toUpperCase(Locale.ROOT));
+    List<Map<String, Object>> items = result.getRecords().stream()
+        .map(ScopeAdminController::scopeView)
+        .toList();
+    return new PageResult<>(items, safePage, safeSize, result.getTotal()).asMap();
   }
 
+  @RequirePermission("scope:manage")
+  @AuditAction(action = "SCOPE_CREATED", resourceType = "SCOPE", resourceId = "#result['id']",
+      after = "#result['resourceType'] + ':' + #result['resourceId']", when = "#result['changed']")
   @PostMapping
-  public Map<String, Object> create(@RequestBody Map<String, String> body,
-      @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions,
-      @RequestHeader(value = "X-User-Id", defaultValue = "") String actor,
-      @RequestHeader(value = "X-Trace-Id", defaultValue = "") String trace) {
-    require(permissions);
-    String type = normalizeType(body.get("resourceType"));
-    String resourceId = clean(body.get("resourceId"));
+  public Map<String, Object> create(@RequestBody AuthCommands.CreateScope body) {
+    String type = normalizeType(body.resourceType());
+    String resourceId = clean(body.resourceId());
     if (resourceId == null) throw new IllegalArgumentException("resourceId required");
-    String id = UUID.randomUUID().toString();
+    UUID resourceUuid = UUID.fromString(resourceId);
+
+    AuthScopeEntity scope = new AuthScopeEntity();
+    scope.setId(UUID.randomUUID());
+    scope.setResourceType(type);
+    scope.setResourceId(resourceUuid);
+    scope.setStatus("ACTIVE");
     try {
-      jdbc.update("INSERT INTO auth_scope(id,resource_type,resource_id,status) VALUES(UUID_TO_BIN(?),?,UUID_TO_BIN(?),'ACTIVE')", id, type, resourceId);
+      scopes.insert(scope);
     } catch (DuplicateKeyException duplicate) {
-      return findByResource(type, resourceId).orElseThrow(() -> duplicate);
+      AuthScopeEntity existing = scopes.findByResource(type, resourceUuid);
+      if (existing == null) throw duplicate;
+      return scopeResponse(existing, false);
     }
-    audit(actor, "SCOPE_CREATED", id, type + ":" + resourceId, trace);
-    return Map.of("id", id, "resourceType", type, "resourceId", resourceId, "status", "ACTIVE");
+    return scopeResponse(scope, true);
   }
 
+  @RequirePermission("scope:manage")
+  @AuditAction(action = "SCOPE_BOUND", resourceType = "SCOPE", resourceId = "#scopeId",
+      after = "#userId", when = "#result['changed']")
   @PutMapping("/{scopeId}/users/{userId}")
-  public Map<String, Object> bind(@PathVariable String scopeId, @PathVariable String userId,
-      @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions,
-      @RequestHeader(value = "X-User-Id", defaultValue = "") String actor,
-      @RequestHeader(value = "X-Trace-Id", defaultValue = "") String trace) {
-    require(permissions);
-    requireExisting("auth_user", userId, "user", userId);
-    requireExisting("auth_scope", scopeId, "scope", scopeId);
-    int inserted = jdbc.update("INSERT IGNORE INTO auth_user_scope(user_id,scope_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(?))", userId, scopeId);
-    if (inserted > 0) {
-      jdbc.update("UPDATE auth_user SET scope_version=scope_version+1 WHERE id=UUID_TO_BIN(?)", userId);
-      audit(actor, "SCOPE_BOUND", scopeId, userId, trace);
-    }
-    return Map.of("scopeId", scopeId, "userId", userId, "status", "BOUND");
+  public Map<String, Object> bind(@PathVariable("scopeId") String scopeId, @PathVariable("userId") String userId) {
+    UUID scopeUuid = requireExistingScope(scopeId);
+    UUID userUuid = requireExistingUser(userId);
+    boolean changed = scopes.bind(userUuid, scopeUuid) > 0;
+    if (changed) scopes.bumpScopeVersion(userUuid);
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("scopeId", scopeId);
+    response.put("userId", userId);
+    response.put("status", "BOUND");
+    response.put("changed", changed);
+    return response;
   }
 
-  private void requireExisting(String table, String id, String resourceType, String resourceId) {
-    Integer count = jdbc.queryForObject(
-        "SELECT COUNT(*) FROM " + table + " WHERE id=UUID_TO_BIN(?)",
-        Integer.class, id);
-    if (count == null || count == 0) {
-      throw new ResponseStatusException(HttpStatus.NOT_FOUND, resourceType + " not found: " + resourceId);
-    }
-  }
-
+  @RequirePermission("scope:manage")
+  @AuditAction(action = "SCOPE_UNBOUND", resourceType = "SCOPE", resourceId = "#scopeId",
+      after = "#userId", when = "#result['changed']")
   @DeleteMapping("/{scopeId}/users/{userId}")
-  public Map<String, Object> unbind(@PathVariable String scopeId, @PathVariable String userId,
-      @RequestHeader(value = "X-User-Permissions", defaultValue = "") String permissions,
-      @RequestHeader(value = "X-User-Id", defaultValue = "") String actor,
-      @RequestHeader(value = "X-Trace-Id", defaultValue = "") String trace) {
-    require(permissions);
-    requireExisting("auth_user", userId, "user", userId);
-    requireExisting("auth_scope", scopeId, "scope", scopeId);
-    int deleted = jdbc.update("DELETE FROM auth_user_scope WHERE user_id=UUID_TO_BIN(?) AND scope_id=UUID_TO_BIN(?)", userId, scopeId);
-    if (deleted > 0) {
-      jdbc.update("UPDATE auth_user SET scope_version=scope_version+1 WHERE id=UUID_TO_BIN(?)", userId);
-      audit(actor, "SCOPE_UNBOUND", scopeId, userId, trace);
-    }
-    return Map.of("scopeId", scopeId, "userId", userId, "status", "UNBOUND");
+  public Map<String, Object> unbind(@PathVariable("scopeId") String scopeId,
+                                    @PathVariable("userId") String userId) {
+    UUID scopeUuid = requireExistingScope(scopeId);
+    UUID userUuid = requireExistingUser(userId);
+    boolean changed = scopes.unbind(userUuid, scopeUuid) > 0;
+    if (changed) scopes.bumpScopeVersion(userUuid);
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("scopeId", scopeId);
+    response.put("userId", userId);
+    response.put("status", "UNBOUND");
+    response.put("changed", changed);
+    return response;
   }
 
-  private void require(String permissions) {
-    if (permissions == null || (!permissions.contains("scope:manage") && !permissions.contains("system:config"))) {
-      throw new SecurityException("forbidden");
+  private UUID requireExistingScope(String scopeId) {
+    UUID id = parseUuid(scopeId);
+    if (id == null || scopes.selectById(id) == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "scope not found: " + scopeId);
     }
+    return id;
+  }
+
+  private UUID requireExistingUser(String userId) {
+    UUID id = parseUuid(userId);
+    AuthUserEntity user = id == null ? null : users.selectById(id);
+    if (user == null) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "user not found: " + userId);
+    }
+    return id;
+  }
+
+  private static UUID parseUuid(String value) {
+    try {
+      return UUID.fromString(value);
+    } catch (RuntimeException notAUuid) {
+      return null;
+    }
+  }
+
+  private static Map<String, Object> scopeResponse(AuthScopeEntity scope, boolean changed) {
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("id", scope.getId().toString());
+    response.put("resourceType", scope.getResourceType());
+    response.put("resourceId", scope.getResourceId() == null ? "" : scope.getResourceId().toString());
+    response.put("status", scope.getStatus());
+    response.put("changed", changed);
+    return response;
+  }
+
+  private static Map<String, Object> scopeView(AuthScopeEntity scope) {
+    Map<String, Object> value = new LinkedHashMap<>();
+    value.put("id", scope.getId() == null ? "" : scope.getId().toString());
+    value.put("resourceType", scope.getResourceType());
+    value.put("resourceId", scope.getResourceId() == null ? "" : scope.getResourceId().toString());
+    value.put("status", scope.getStatus());
+    value.put("userCount", scope.getUserCount() == null ? 0L : scope.getUserCount());
+    value.put("createdAt", scope.getCreatedAt() == null ? null : scope.getCreatedAt().toString());
+    return value;
   }
 
   private String normalizeType(String value) {
     String type = clean(value);
-    if (type == null || !RESOURCE_TYPES.contains(type.toUpperCase(Locale.ROOT))) throw new IllegalArgumentException("unsupported resourceType");
+    if (type == null || !RESOURCE_TYPES.contains(type.toUpperCase(Locale.ROOT))) {
+      throw new IllegalArgumentException("unsupported resourceType");
+    }
     return type.toUpperCase(Locale.ROOT);
   }
 
   private static String clean(String value) {
     if (value == null || value.isBlank()) return null;
     return value.trim();
-  }
-
-  private Optional<Map<String, Object>> findByResource(String type, String resourceId) {
-    return jdbc.query("SELECT BIN_TO_UUID(id) id,resource_type,COALESCE(BIN_TO_UUID(resource_id),'') resource_id,status FROM auth_scope WHERE resource_type=? AND resource_id=UUID_TO_BIN(?)",
-        (r, n) -> {
-          Map<String, Object> value = new LinkedHashMap<>();
-          value.put("id", r.getString("id"));
-          value.put("resourceType", r.getString("resource_type"));
-          value.put("resourceId", r.getString("resource_id"));
-          value.put("status", r.getString("status"));
-          return value;
-        }, type, resourceId).stream().findFirst();
-  }
-
-  private void audit(String actor, String action, String resourceId, String after, String trace) {
-    jdbc.update("INSERT INTO auth_audit_log(id,actor_user_id,action,resource_type,resource_id,after_json,trace_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(NULLIF(?,'')),?,?,UUID_TO_BIN(NULLIF(?,'')),JSON_QUOTE(?),?)",
-        UUID.randomUUID().toString(), actor, action, "SCOPE", resourceId, after, trace);
-  }
-
-  private Map<String, Object> page(List<?> items, int page, int size, long total) {
-    return Map.of("items", items, "page", page, "size", size, "total", total, "totalPages", total == 0 ? 0 : (total + size - 1) / size);
   }
 }

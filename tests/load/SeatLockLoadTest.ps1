@@ -10,7 +10,7 @@ Assert-CloudTicketStatus $login 200 'login'
 $token = $login.Json.data.accessToken
 $directory = Invoke-CloudTicketRequest GET "$base/api/activities"
 Assert-CloudTicketStatus $directory 200 'activity directory'
-$detail = Invoke-CloudTicketRequest GET "$base/api/activities/$($directory.Json.data[0].id)"
+$detail = Invoke-CloudTicketRequest GET "$base/api/activities/$($directory.Json.data.items[0].id)"
 Assert-CloudTicketStatus $detail 200 'activity detail'
 $session = $detail.Json.data.sessions[0]
 $seats = Invoke-CloudTicketRequest GET "$base/api/sessions/$($session.id)/seats"

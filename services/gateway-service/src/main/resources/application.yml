@@ -3,6 +3,12 @@ server:
 spring:
   application:
     name: gateway-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 300ms
+      timeout: 300ms
   cloud:
     nacos:
       discovery:
@@ -12,3 +18,7 @@ cloudticket:
     jwt-signing-key: ${AUTH_JWT_SIGNING_KEY:dev-only-change-me}
   auth-service-base-url: ${AUTH_SERVICE_BASE_URL:lb://auth-service}
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+  auth-status-cache:
+    enabled: ${AUTH_STATUS_CACHE_ENABLED:true}
+    local-ttl-ms: ${AUTH_STATUS_CACHE_LOCAL_TTL_MS:1000}
+    redis-ttl-ms: ${AUTH_STATUS_CACHE_REDIS_TTL_MS:3000}

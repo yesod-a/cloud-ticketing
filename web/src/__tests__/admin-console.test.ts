@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import AdminLayout from '../views/admin/AdminLayout.vue'
 import { session } from '../auth/authApi'
 
@@ -26,5 +26,21 @@ describe('admin console', () => {
     await createButton!.trigger('click')
     expect(wrapper.text()).toContain('创建活动')
     expect(wrapper.find('.modal-backdrop').exists()).toBe(true)
+  })
+
+  it('keeps the session management table inside a responsive modal container', async () => {
+    vi.mocked(fetch).mockResolvedValue(new Response(JSON.stringify({
+      data: { items: [{ id: 'activity-1', title: 'abc', organizer: 'Org', status: 'OFFLINE' }], total: 1 }
+    }), { status: 200 }))
+    const wrapper = mount(AdminLayout, { props: { permissions: ['activity:write', 'session:write'] } })
+
+    await flushPromises()
+    const sessionButton = wrapper.findAll('button').find(button => button.text() === '场次')
+    expect(sessionButton).toBeTruthy()
+    await sessionButton!.trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('.modal-card.wide').exists()).toBe(true)
+    expect(wrapper.find('.session-table-wrap').exists()).toBe(true)
   })
 })

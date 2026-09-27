@@ -1,39 +1,67 @@
 package com.cloudticket.order;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
+import com.cloudticket.common.events.EventTypes;
+import com.cloudticket.order.client.InventoryReservationClient;
+import com.cloudticket.order.event.OutboxEventWriter;
+import com.cloudticket.order.persistence.OrderRepository;
+import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class OrderExpiryServiceTest {
+
+  private final OrderRepository orders = mock(OrderRepository.class);
+  private final InventoryReservationClient inventory = mock(InventoryReservationClient.class);
+  private final OutboxEventWriter outbox = mock(OutboxEventWriter.class);
+
   @Test
   void expiresOnlyPendingOrdersAndReleasesInventory() {
-    var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
-    var inventory = mock(com.cloudticket.order.client.InventoryReservationClient.class);
-    when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(15)))
-        .thenReturn(List.of(Map.of("id", "o-1", "userId", "u-1", "sessionId", "s-1", "seatIds", "A1")));
-    when(jdbc.update(contains("SET status='EXPIRED'"), eq("o-1"), eq(15))).thenReturn(1);
+    when(orders.findExpiredCandidates(15)).thenReturn(List.of(candidate("o-1")));
+    when(orders.expireIfStillPending("o-1", 15)).thenReturn(true);
 
-    var service = new OrderExpiryService(jdbc, inventory, 15);
-    assertEquals(1, service.expirePendingOrders());
+    assertEquals(1, new OrderExpiryService(orders, inventory, outbox, 15).expirePendingOrders());
 
+    verify(outbox).write(eq(EventTypes.ORDER_EXPIRED), eq("o-1"), any());
     verify(inventory).release("o-1");
-    verify(jdbc).update(contains("order_outbox"), any(), any(), any(), any(), any());
   }
 
   @Test
   void isIdempotentWhenConditionalUpdateDoesNotMatch() {
-    var jdbc = mock(org.springframework.jdbc.core.JdbcTemplate.class);
-    var inventory = mock(com.cloudticket.order.client.InventoryReservationClient.class);
-    when(jdbc.query(anyString(), any(org.springframework.jdbc.core.RowMapper.class), eq(15)))
-        .thenReturn(List.of(Map.of("id", "o-1", "userId", "u-1", "sessionId", "s-1", "seatIds", "A1")));
-    when(jdbc.update(contains("SET status='EXPIRED'"), eq("o-1"), eq(15))).thenReturn(0);
+    when(orders.findExpiredCandidates(15)).thenReturn(List.of(candidate("o-1")));
+    when(orders.expireIfStillPending("o-1", 15)).thenReturn(false);
 
-    var service = new OrderExpiryService(jdbc, inventory, 15);
-    assertEquals(0, service.expirePendingOrders());
-    verifyNoInteractions(inventory);
+    assertEquals(0, new OrderExpiryService(orders, inventory, outbox, 15).expirePendingOrders());
+
+    verify(outbox, never()).write(any(), any(), any());
+    verify(inventory, never()).release(any());
+  }
+
+  @Test
+  void keepsGoingWhenInventoryReleaseFails() {
+    when(orders.findExpiredCandidates(15)).thenReturn(List.of(candidate("o-1")));
+    when(orders.expireIfStillPending("o-1", 15)).thenReturn(true);
+    org.mockito.Mockito.doThrow(new RuntimeException("inventory down")).when(inventory).release("o-1");
+
+    assertEquals(1, new OrderExpiryService(orders, inventory, outbox, 15).expirePendingOrders());
+
+    verify(outbox).write(eq(EventTypes.ORDER_EXPIRED), eq("o-1"), any());
+  }
+
+  private static TicketOrderEntity candidate(String id) {
+    TicketOrderEntity order = new TicketOrderEntity();
+    order.setId(id);
+    order.setUserId("u-1");
+    order.setSessionId("s-1");
+    order.setSeatIds("A1");
+    order.setStatus("PENDING");
+    return order;
   }
 }

@@ -1,14 +1,19 @@
 package com.cloudticket.order;
 
+import com.cloudticket.order.persistence.entity.OrderOutboxEntity;
+import com.cloudticket.order.persistence.mapper.OrderOutboxMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
-import java.util.Map;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -19,24 +24,36 @@ import org.springframework.stereotype.Component;
 public class OutboxPublisher {
   private static final Logger log = LoggerFactory.getLogger(OutboxPublisher.class);
 
-  private final JdbcTemplate jdbc;
+  private final OrderOutboxMapper outbox;
   private final KafkaTemplate<String, String> kafka;
+  private final ObjectMapper json;
   private final String topic;
   private final int batchSize;
   private final long sendTimeoutMs;
+  private final long leaseSeconds;
 
   @Autowired
   public OutboxPublisher(
-      JdbcTemplate jdbc,
+      OrderOutboxMapper outbox,
       KafkaTemplate<String, String> kafka,
+      ObjectMapper json,
       @Value("${cloudticket.outbox.topic:order-events}") String topic,
       @Value("${cloudticket.outbox.batch-size:50}") int batchSize,
-      @Value("${cloudticket.outbox.send-timeout-ms:1000}") long sendTimeoutMs) {
-    this.jdbc = jdbc;
+      @Value("${cloudticket.outbox.send-timeout-ms:1000}") long sendTimeoutMs,
+      @Value("${cloudticket.outbox.lease-seconds:30}") long leaseSeconds) {
+    this.outbox = outbox;
     this.kafka = kafka;
+    this.json = json;
     this.topic = topic;
     this.batchSize = Math.max(1, Math.min(500, batchSize));
     this.sendTimeoutMs = Math.max(1, sendTimeoutMs);
+    long batchLease = (this.batchSize * this.sendTimeoutMs + 999L) / 1000L + 5L;
+    this.leaseSeconds = Math.max(5, Math.max(leaseSeconds, Math.min(3600, batchLease)));
+  }
+
+  public OutboxPublisher(OrderOutboxMapper outbox, KafkaTemplate<String, String> kafka, ObjectMapper json,
+                         String topic, int batchSize, long sendTimeoutMs) {
+    this(outbox, kafka, json, topic, batchSize, sendTimeoutMs, 30);
   }
 
   @Scheduled(fixedDelayString = "${cloudticket.outbox.poll-ms:1000}")
@@ -46,35 +63,22 @@ public class OutboxPublisher {
 
   /** Publishes one bounded batch. Failures are persisted for a later retry. */
   public int publishOnce() {
-    List<Map<String, Object>> events = jdbc.query(
-        "SELECT event_id,event_type,aggregate_type,aggregate_id,payload,trace_id,schema_version,occurred_at FROM order_outbox "
-            + "WHERE published_at IS NULL ORDER BY occurred_at,event_id LIMIT ?",
-        (rs, rowNum) -> {
-          Map<String, Object> value = new java.util.LinkedHashMap<>();
-          value.put("eventId", rs.getString("event_id"));
-          value.put("eventType", rs.getString("event_type"));
-          value.put("aggregateType", rs.getString("aggregate_type"));
-          value.put("aggregateId", rs.getString("aggregate_id"));
-          value.put("payload", rs.getString("payload"));
-          value.put("traceId", rs.getString("trace_id"));
-          value.put("schemaVersion", rs.getInt("schema_version"));
-          value.put("occurredAt", rs.getTimestamp("occurred_at").toInstant().toString());
-          return value;
-        },
-        batchSize);
+    String claimToken = UUID.randomUUID().toString();
+    outbox.claimPending(claimToken, Instant.now().plusSeconds(leaseSeconds), batchSize);
+    List<OrderOutboxEntity> events = outbox.selectClaimed(claimToken, batchSize);
     int published = 0;
-    for (Map<String, Object> event : events) {
-      String eventId = String.valueOf(event.get("eventId"));
+    for (OrderOutboxEntity event : events) {
+      String eventId = event.getEventId();
       try {
         String envelope = envelope(event);
-        var result = kafka.send(topic, String.valueOf(event.get("aggregateId")), envelope);
+        var result = kafka.send(topic, event.getAggregateId(), envelope);
         if (result != null) result.get(sendTimeoutMs, TimeUnit.MILLISECONDS);
-        jdbc.update("UPDATE order_outbox SET published_at=CURRENT_TIMESTAMP,last_error=NULL WHERE event_id=? AND published_at IS NULL", eventId);
+        outbox.markPublished(eventId, claimToken);
         published++;
       } catch (Exception failure) {
         String message = failure.getMessage() == null ? failure.getClass().getSimpleName() : failure.getMessage();
         try {
-          jdbc.update("UPDATE order_outbox SET attempts = attempts + 1,last_error=? WHERE event_id=?", message, eventId);
+          outbox.recordFailure(eventId, message, claimToken);
         } catch (RuntimeException persistFailure) {
           log.warn("Unable to persist outbox failure for {}", eventId, persistFailure);
         }
@@ -84,20 +88,28 @@ public class OutboxPublisher {
     return published;
   }
 
-  private static String envelope(Map<String, Object> event) {
-    String trace = event.get("traceId") == null ? "null" : "\"" + jsonEscape(String.valueOf(event.get("traceId"))) + "\"";
-    String payload = String.valueOf(event.getOrDefault("payload", "null"));
-    String occurredAt = jsonEscape(String.valueOf(event.getOrDefault("occurredAt", "")));
-    return "{\"eventId\":\"" + jsonEscape(String.valueOf(event.get("eventId")))
-        + "\",\"eventType\":\"" + jsonEscape(String.valueOf(event.getOrDefault("eventType", "OrderCreated")))
-        + "\",\"aggregateType\":\"" + jsonEscape(String.valueOf(event.getOrDefault("aggregateType", "ORDER")))
-        + "\",\"aggregateId\":\"" + jsonEscape(String.valueOf(event.get("aggregateId")))
-        + "\",\"occurredAt\":\"" + occurredAt
-        + "\",\"schemaVersion\":" + String.valueOf(event.getOrDefault("schemaVersion", 1))
-        + ",\"traceId\":" + trace + ",\"payload\":" + payload + "}";
+  /** Builds the Kafka envelope from the stored row, embedding the payload as real JSON. */
+  private String envelope(OrderOutboxEntity event) {
+    ObjectNode node = json.createObjectNode();
+    node.put("eventId", event.getEventId());
+    node.put("eventType", event.getEventType());
+    node.put("aggregateType", event.getAggregateType());
+    node.put("aggregateId", event.getAggregateId());
+    node.put("occurredAt", event.getOccurredAt() == null ? null : event.getOccurredAt().toString());
+    node.put("schemaVersion", event.getSchemaVersion() == null ? 1 : event.getSchemaVersion());
+    if (event.getTraceId() == null) node.putNull("traceId");
+    else node.put("traceId", event.getTraceId());
+    node.set("payload", payloadNode(event.getPayload()));
+    return node.toString();
   }
 
-  private static String jsonEscape(String value) {
-    return value.replace("\\", "\\\\").replace("\"", "\\\"");
+  private JsonNode payloadNode(String payload) {
+    if (payload == null || payload.isBlank()) return json.nullNode();
+    try {
+      return json.readTree(payload);
+    } catch (Exception unreadable) {
+      log.warn("Outbox payload is not valid JSON, forwarding it as a string", unreadable);
+      return json.getNodeFactory().textNode(payload);
+    }
   }
 }

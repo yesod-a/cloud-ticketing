@@ -17,6 +17,8 @@ spring:
     locations: classpath:db/migration
   kafka:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
 cloudticket:
   inventory-base-url: ${INVENTORY_BASE_URL:http://inventory-service:8082}
   activity-base-url: ${ACTIVITY_BASE_URL:http://activity-service:8081}
@@ -27,6 +29,7 @@ cloudticket:
     batch-size: ${ORDER_OUTBOX_BATCH_SIZE:50}
     poll-ms: ${ORDER_OUTBOX_POLL_MS:1000}
     send-timeout-ms: ${ORDER_OUTBOX_SEND_TIMEOUT_MS:1000}
+    lease-seconds: ${ORDER_OUTBOX_LEASE_SECONDS:30}
   order-expiry:
     enabled: ${ORDER_EXPIRY_ENABLED:true}
     payment-window-minutes: ${ORDER_PAYMENT_WINDOW_MINUTES:15}

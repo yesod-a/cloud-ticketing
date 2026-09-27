@@ -1,55 +1,155 @@
 package com.cloudticket.auth.service;
 
-import com.cloudticket.auth.domain.UserEntity;
-import com.cloudticket.auth.repository.UserRepository;
+import com.cloudticket.auth.persistence.entity.AuthUserEntity;
+import com.cloudticket.auth.persistence.mapper.AuthRevokedAccessTokenMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
 import com.cloudticket.auth.security.PasswordPolicy;
 import com.cloudticket.auth.security.TokenService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.jdbc.core.JdbcTemplate;
-import java.util.List;
 
+/** Registration, login, refresh and password recovery for a user account. */
 @Service
 public class AuthService {
-    private static final int MAX_FAILURES = 5;
-    private static final Duration LOCK_DURATION = Duration.ofMinutes(15);
-    private final UserRepository users; private final PasswordEncoder encoder; private final TokenService tokens; private final JdbcTemplate jdbc;
-    private final ConcurrentHashMap<String, UUID> resetTokens = new ConcurrentHashMap<>();
-    public AuthService(UserRepository users, PasswordEncoder encoder, TokenService tokens) { this(users, encoder, tokens, null); }
-    @org.springframework.beans.factory.annotation.Autowired public AuthService(UserRepository users, PasswordEncoder encoder, TokenService tokens, JdbcTemplate jdbc) { this.users=users; this.encoder=encoder; this.tokens=tokens; this.jdbc=jdbc; }
-    public UserEntity register(String phone, String email, String password, String nickname) {
-        phone=normalizePhone(phone); email=normalizeEmail(email); PasswordPolicy.requireValid(password);
-        if (phone == null && email == null) throw new IllegalArgumentException("phone or email required");
-        if (phone != null && users.existsByPhone(phone) || email != null && users.existsByEmail(email)) throw new DuplicateCredentialException();
-        Instant now=Instant.now(); UUID id=UUID.randomUUID(); String passwordHash=encoder.encode(password);
-        users.insert(id.toString(), phone, email, passwordHash, nickname, "ACTIVE", 0, null, 0, now, now);
-        return new UserEntity(id, phone, email, passwordHash, nickname, "ACTIVE", 0, null, 0, now, now);
+
+  private static final int MAX_FAILURES = 5;
+  private static final Duration LOCK_DURATION = Duration.ofMinutes(15);
+  private static final String ACTIVE = "ACTIVE";
+
+  private final AuthUserMapper users;
+  private final PasswordEncoder encoder;
+  private final TokenService tokens;
+  private final AuthRevokedAccessTokenMapper revokedTokens;
+  private final ConcurrentHashMap<String, UUID> resetTokens = new ConcurrentHashMap<>();
+
+  public AuthService(AuthUserMapper users, PasswordEncoder encoder, TokenService tokens) {
+    this(users, encoder, tokens, null);
+  }
+
+  @Autowired
+  public AuthService(AuthUserMapper users, PasswordEncoder encoder, TokenService tokens,
+                     AuthRevokedAccessTokenMapper revokedTokens) {
+    this.users = users;
+    this.encoder = encoder;
+    this.tokens = tokens;
+    this.revokedTokens = revokedTokens;
+  }
+
+  public AuthUserEntity register(String phone, String email, String password, String nickname) {
+    String cleanPhone = normalizePhone(phone);
+    String cleanEmail = normalizeEmail(email);
+    PasswordPolicy.requireValid(password);
+    if (cleanPhone == null && cleanEmail == null) throw new IllegalArgumentException("phone or email required");
+    if ((cleanPhone != null && users.countByPhone(cleanPhone) > 0)
+        || (cleanEmail != null && users.countByEmail(cleanEmail) > 0)) {
+      throw new DuplicateCredentialException();
     }
-    public TokenService.Issued login(String identifier, String password) {
-        String normalized = identifier != null && identifier.contains("@") ? normalizeEmail(identifier) : normalizePhone(identifier);
-        UserEntity u=users.findByPhoneOrEmail(normalized).orElseThrow(() -> new InvalidCredentialsException());
-        if (!"ACTIVE".equals(u.status()) || (u.lockedUntil()!=null && u.lockedUntil().isAfter(Instant.now()))) throw new InvalidCredentialsException();
-        if (!encoder.matches(password, u.passwordHash())) {
-            int count=u.failedLoginCount()+1; Instant lock=count>=MAX_FAILURES?Instant.now().plus(LOCK_DURATION):u.lockedUntil();
-            users.save(new UserEntity(u.id(),u.phone(),u.email(),u.passwordHash(),u.nickname(),u.status(),count,lock,u.scopeVersion(),u.createdAt(),Instant.now()));
-            throw new InvalidCredentialsException();
-        }
-        if (u.failedLoginCount()!=0 || u.lockedUntil()!=null) u=users.save(new UserEntity(u.id(),u.phone(),u.email(),u.passwordHash(),u.nickname(),u.status(),0,null,u.scopeVersion(),u.createdAt(),Instant.now()));
-        return tokens.issue(u, users.findRoleCodes(u.id().toString()), users.findPermissionCodes(u.id().toString()), users.findScopes(u.id().toString()));
+    AuthUserEntity user = new AuthUserEntity();
+    user.setId(UUID.randomUUID());
+    user.setPhone(cleanPhone);
+    user.setEmail(cleanEmail);
+    user.setPasswordHash(encoder.encode(password));
+    user.setNickname(nickname);
+    user.setStatus(ACTIVE);
+    user.setFailedLoginCount(0);
+    user.setScopeVersion(0L);
+    users.insert(user);
+    return users.selectById(user.getId());
+  }
+
+  public TokenService.Issued login(String identifier, String password) {
+    String normalized = identifier != null && identifier.contains("@")
+        ? normalizeEmail(identifier)
+        : normalizePhone(identifier);
+    AuthUserEntity user = Optional.ofNullable(normalized == null ? null : users.findByIdentifier(normalized))
+        .orElseThrow(InvalidCredentialsException::new);
+    if (!ACTIVE.equals(user.getStatus())
+        || (user.getLockedUntil() != null && user.getLockedUntil().isAfter(Instant.now()))) {
+      throw new InvalidCredentialsException();
     }
-    public TokenService.Issued refresh(String refreshToken) { try { var t=tokens.findAny(refreshToken); UserEntity u=users.findById(t.userId()).orElseThrow(InvalidCredentialsException::new); return tokens.rotate(refreshToken, u, users.findRoleCodes(u.id().toString()), users.findPermissionCodes(u.id().toString()), users.findScopes(u.id().toString())); } catch (SecurityException ex) { throw new InvalidCredentialsException(); } }
-    public void logout(String refreshToken) { logout(refreshToken, null); }
-    public void logout(String refreshToken, String accessToken) { tokens.revoke(refreshToken); if (jdbc != null && accessToken != null && !accessToken.isBlank()) TokenService.parseAccessToken(accessToken).ifPresent(claims -> jdbc.update("INSERT IGNORE INTO auth_revoked_access_token(jti,expires_at) VALUES(?,?)", claims.jti(), java.sql.Timestamp.from(claims.expiresAt()))); }
-    public String forgotPassword(String identifier) { String n=identifier!=null&&identifier.contains("@")?normalizeEmail(identifier):normalizePhone(identifier); users.findByPhoneOrEmail(n).ifPresent(u->resetTokens.put(UUID.randomUUID().toString(),u.id())); return "If the account exists, reset instructions were sent"; }
-    public UserEntity resetPassword(String token,String password) { PasswordPolicy.requireValid(password); UUID id=resetTokens.remove(token); if(id==null) throw new InvalidCredentialsException(); UserEntity u=users.findById(id).orElseThrow(InvalidCredentialsException::new); return users.save(new UserEntity(u.id(),u.phone(),u.email(),encoder.encode(password),u.nickname(),u.status(),0,null,u.scopeVersion()+1,u.createdAt(),Instant.now())); }
-    public UserEntity me(UUID userId) { return users.findById(userId).orElseThrow(InvalidCredentialsException::new); }
-    public static String normalizeEmail(String e){ return e==null?null:e.trim().toLowerCase(Locale.ROOT); }
-    public static String normalizePhone(String p){ if(p==null)return null; String n=p.replaceAll("[^0-9+]",""); return n.isBlank()?null:n; }
-    public static class DuplicateCredentialException extends RuntimeException {}
-    public static class InvalidCredentialsException extends RuntimeException {}
+    if (!encoder.matches(password, user.getPasswordHash())) {
+      int failures = failures(user) + 1;
+      Instant lock = failures >= MAX_FAILURES ? Instant.now().plus(LOCK_DURATION) : user.getLockedUntil();
+      users.updateLoginState(user.getId(), failures, lock);
+      throw new InvalidCredentialsException();
+    }
+    if (failures(user) != 0 || user.getLockedUntil() != null) {
+      users.updateLoginState(user.getId(), 0, null);
+    }
+    return tokens.issue(user, users.findRoleCodes(user.getId()), users.findPermissionCodes(user.getId()),
+        users.findScopes(user.getId()));
+  }
+
+  public TokenService.Issued refresh(String refreshToken) {
+    try {
+      var stored = tokens.findAny(refreshToken);
+      AuthUserEntity user = Optional.ofNullable(users.selectById(stored.getUserId()))
+          .orElseThrow(InvalidCredentialsException::new);
+      return tokens.rotate(refreshToken, user, users.findRoleCodes(user.getId()),
+          users.findPermissionCodes(user.getId()), users.findScopes(user.getId()));
+    } catch (SecurityException failure) {
+      throw new InvalidCredentialsException();
+    }
+  }
+
+  public void logout(String refreshToken) {
+    logout(refreshToken, null);
+  }
+
+  public void logout(String refreshToken, String accessToken) {
+    tokens.revoke(refreshToken);
+    if (revokedTokens == null || accessToken == null || accessToken.isBlank()) return;
+    TokenService.parseAccessToken(accessToken)
+        .ifPresent(claims -> revokedTokens.revoke(claims.jti(), claims.expiresAt()));
+  }
+
+  public String forgotPassword(String identifier) {
+    String normalized = identifier != null && identifier.contains("@")
+        ? normalizeEmail(identifier)
+        : normalizePhone(identifier);
+    if (normalized != null) {
+      Optional.ofNullable(users.findByIdentifier(normalized))
+          .ifPresent(user -> resetTokens.put(UUID.randomUUID().toString(), user.getId()));
+    }
+    return "If the account exists, reset instructions were sent";
+  }
+
+  public AuthUserEntity resetPassword(String token, String password) {
+    PasswordPolicy.requireValid(password);
+    UUID id = resetTokens.remove(token);
+    if (id == null) throw new InvalidCredentialsException();
+    AuthUserEntity user = Optional.ofNullable(users.selectById(id))
+        .orElseThrow(InvalidCredentialsException::new);
+    users.resetPassword(user.getId(), encoder.encode(password));
+    return users.selectById(user.getId());
+  }
+
+  public AuthUserEntity me(UUID userId) {
+    return Optional.ofNullable(users.selectById(userId)).orElseThrow(InvalidCredentialsException::new);
+  }
+
+  public static String normalizeEmail(String email) {
+    return email == null ? null : email.trim().toLowerCase(Locale.ROOT);
+  }
+
+  public static String normalizePhone(String phone) {
+    if (phone == null) return null;
+    String normalized = phone.replaceAll("[^0-9+]", "");
+    return normalized.isBlank() ? null : normalized;
+  }
+
+  private static int failures(AuthUserEntity user) {
+    return user.getFailedLoginCount() == null ? 0 : user.getFailedLoginCount();
+  }
+
+  public static class DuplicateCredentialException extends RuntimeException {}
+
+  public static class InvalidCredentialsException extends RuntimeException {}
 }

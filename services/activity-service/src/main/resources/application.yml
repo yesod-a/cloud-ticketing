@@ -3,6 +3,12 @@ server:
 spring:
   application:
     name: activity-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      connect-timeout: 300ms
+      timeout: 300ms
   cloud:
     nacos:
       discovery:
@@ -18,3 +24,7 @@ spring:
 cloudticket:
   inventory-base-url: ${INVENTORY_BASE_URL:http://inventory-service:8082}
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+  public-read-cache:
+    enabled: ${PUBLIC_READ_CACHE_ENABLED:true}
+    local-ttl-ms: ${PUBLIC_READ_CACHE_LOCAL_TTL_MS:3000}
+    redis-ttl-ms: ${PUBLIC_READ_CACHE_REDIS_TTL_MS:30000}

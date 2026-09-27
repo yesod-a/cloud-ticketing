@@ -1,25 +1,140 @@
 package com.cloudticket.auth.api;
 
-import java.util.*;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.web.bind.annotation.*;
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.cloudticket.auth.persistence.entity.AuthAuditLogEntity;
+import com.cloudticket.auth.persistence.entity.AuthRoleEntity;
+import com.cloudticket.auth.persistence.entity.AuthUserEntity;
+import com.cloudticket.auth.persistence.mapper.AuthAuditLogMapper;
+import com.cloudticket.auth.persistence.mapper.AuthRoleMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
+import com.cloudticket.common.security.AuditAction;
+import com.cloudticket.common.security.RequirePermission;
+import com.cloudticket.common.web.PageResult;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
+/** User, role and audit administration. */
 @RestController
 @RequestMapping("/api/admin/auth")
 public class AuthAdminController {
-  private final JdbcTemplate jdbc;
-  public AuthAdminController(JdbcTemplate jdbc){this.jdbc=jdbc;}
-  private void require(String permissions,String required){if(!(permissions.contains(required)||permissions.contains("system:config")))throw new SecurityException("forbidden");}
+
+  private static final Set<String> USER_STATUSES = Set.of("ACTIVE", "DISABLED");
+
+  private final AuthUserMapper users;
+  private final AuthRoleMapper roles;
+  private final AuthAuditLogMapper audits;
+
+  public AuthAdminController(AuthUserMapper users, AuthRoleMapper roles, AuthAuditLogMapper audits) {
+    this.users = users;
+    this.roles = roles;
+    this.audits = audits;
+  }
+
+  @RequirePermission("user:read")
   @GetMapping("/users")
-  public Map<String,Object> users(@RequestParam(name="keyword",defaultValue="") String keyword,@RequestParam(name="status",defaultValue="") String status,@RequestParam(name="page",defaultValue="0") int page,@RequestParam(name="size",defaultValue="20") int size,@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions){require(permissions,"user:read");int p=Math.max(0,page),s=Math.min(100,Math.max(1,size));String k=keyword.trim(),st=status.trim();Integer total=jdbc.queryForObject("SELECT COUNT(*) FROM auth_user WHERE (?='' OR phone LIKE CONCAT('%',?,'%') OR email LIKE CONCAT('%',?,'%') OR nickname LIKE CONCAT('%',?,'%')) AND (?='' OR status=?)",Integer.class,k,k,k,k,st,st);var items=jdbc.query("SELECT BIN_TO_UUID(id) id,phone,email,nickname,status,created_at FROM auth_user WHERE (?='' OR phone LIKE CONCAT('%',?,'%') OR email LIKE CONCAT('%',?,'%') OR nickname LIKE CONCAT('%',?,'%')) AND (?='' OR status=?) ORDER BY created_at DESC LIMIT ? OFFSET ?",(r,n)->Map.of("id",r.getString("id"),"phone",Objects.toString(r.getString("phone"),""),"email",Objects.toString(r.getString("email"),""),"nickname",Objects.toString(r.getString("nickname"),""),"status",r.getString("status"),"createdAt",r.getTimestamp("created_at").toInstant().toString()),k,k,k,k,st,st,s,p*s);return page(items,p,s,total==null?0:total);}
+  public Map<String, Object> users(@RequestParam(name = "keyword", defaultValue = "") String keyword,
+                                   @RequestParam(name = "status", defaultValue = "") String status,
+                                   @RequestParam(name = "page", defaultValue = "0") int page,
+                                   @RequestParam(name = "size", defaultValue = "20") int size) {
+    int safePage = PageResult.safePage(page);
+    int safeSize = PageResult.safeSize(size);
+    Page<AuthUserEntity> result = users.selectAdminPage(new Page<>(safePage + 1L, safeSize),
+        keyword.trim(), status.trim());
+    List<Map<String, Object>> items = result.getRecords().stream().map(AuthAdminController::userView).toList();
+    return new PageResult<>(items, safePage, safeSize, result.getTotal()).asMap();
+  }
+
+  @RequirePermission("user:manage")
+  @AuditAction(action = "USER_STATUS_CHANGED", resourceType = "USER", resourceId = "#id",
+      after = "#body.status()")
   @PutMapping("/users/{id}/status")
-  public Map<String,Object> status(@PathVariable("id") String id,@RequestBody Map<String,String> body,@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions,@RequestHeader(value="X-User-Id",defaultValue="") String actor,@RequestHeader(value="X-Trace-Id",defaultValue="") String trace){require(permissions,"user:manage");String next=body.getOrDefault("status","ACTIVE");if(!Set.of("ACTIVE","DISABLED").contains(next))throw new IllegalArgumentException("invalid status");jdbc.update("UPDATE auth_user SET status=?,scope_version=scope_version+1 WHERE id=UUID_TO_BIN(?)",next,id);audit(actor,"USER_STATUS_CHANGED","USER",id, next,trace);return Map.of("id",id,"status",next);}
+  public Map<String, Object> status(@PathVariable("id") String id,
+                                    @RequestBody AuthCommands.ChangeUserStatus body) {
+    String next = body.statusOrDefault();
+    if (!USER_STATUSES.contains(next)) throw new IllegalArgumentException("invalid status");
+    users.changeStatus(UUID.fromString(id), next);
+    return Map.of("id", id, "status", next);
+  }
+
+  @RequirePermission("role:manage")
+  @AuditAction(action = "USER_ROLE_GRANTED", resourceType = "USER", resourceId = "#id",
+      after = "#body.roleCode()", when = "#result['changed']")
   @PutMapping("/users/{id}/role")
-  public ResponseEntity<Map<String,Object>> role(@PathVariable("id") String id,@RequestBody Map<String,String> body,@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions,@RequestHeader(value="X-User-Id",defaultValue="") String actor,@RequestHeader(value="X-Trace-Id",defaultValue="") String trace){try { require(permissions,"role:manage"); } catch (SecurityException ex) { return ResponseEntity.status(HttpStatus.FORBIDDEN).body(Map.of("code","FORBIDDEN","message","forbidden")); } String code=body.get("roleCode");if(code==null||code.isBlank())throw new IllegalArgumentException("roleCode required");int inserted=jdbc.update("INSERT IGNORE INTO auth_user_role(user_id,role_id) SELECT UUID_TO_BIN(?),id FROM auth_role WHERE code=?",id,code);if(inserted>0){jdbc.update("UPDATE auth_user SET scope_version=scope_version+1 WHERE id=UUID_TO_BIN(?)",id);audit(actor,"USER_ROLE_GRANTED","USER",id,code,trace);}return ResponseEntity.ok(Map.of("id",id,"roleCode",code));}
-  @GetMapping("/roles") public Map<String,Object> roles(@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions){require(permissions,"role:manage");return Map.of("items",jdbc.query("SELECT BIN_TO_UUID(id) id,code,name,status FROM auth_role ORDER BY code",(r,n)->Map.of("id",r.getString("id"),"code",r.getString("code"),"name",r.getString("name"),"status",r.getString("status"))));}
-  @GetMapping("/audits") public Map<String,Object> audits(@RequestParam(name="action",defaultValue="") String action,@RequestParam(name="page",defaultValue="0") int page,@RequestParam(name="size",defaultValue="20") int size,@RequestHeader(value="X-User-Permissions",defaultValue="") String permissions){require(permissions,"audit:read");int p=Math.max(0,page),s=Math.min(100,Math.max(1,size));String a=action.trim();Integer total=jdbc.queryForObject("SELECT COUNT(*) FROM auth_audit_log WHERE (?='' OR action=?)",Integer.class,a,a);var items=jdbc.query("SELECT BIN_TO_UUID(id) id,COALESCE(BIN_TO_UUID(actor_user_id),'') actor,action,resource_type,COALESCE(BIN_TO_UUID(resource_id),'') resourceId,trace_id,created_at FROM auth_audit_log WHERE (?='' OR action=?) ORDER BY created_at DESC LIMIT ? OFFSET ?",(r,n)->Map.of("id",r.getString("id"),"actor",r.getString("actor"),"action",r.getString("action"),"resourceType",r.getString("resource_type"),"resourceId",r.getString("resourceId"),"traceId",Objects.toString(r.getString("trace_id"),""),"createdAt",r.getTimestamp("created_at").toInstant().toString()),a,a,s,p*s);return page(items,p,s,total==null?0:total);}
-  private void audit(String actor,String action,String type,String resource,String after,String trace){jdbc.update("INSERT INTO auth_audit_log(id,actor_user_id,action,resource_type,resource_id,after_json,trace_id) VALUES(UUID_TO_BIN(?),UUID_TO_BIN(NULLIF(?,'')),?,?,UUID_TO_BIN(NULLIF(?,'')),JSON_QUOTE(?),?)",UUID.randomUUID().toString(),actor,action,type,resource,after,trace);}
-  private Map<String,Object> page(List<?> items,int page,int size,long total){return Map.of("items",items,"page",page,"size",size,"total",total,"totalPages",total==0?0:(total+size-1)/size);}
+  public Map<String, Object> role(@PathVariable("id") String id, @RequestBody AuthCommands.GrantRole body) {
+    String code = body.roleCode();
+    if (code == null || code.isBlank()) throw new IllegalArgumentException("roleCode required");
+    UUID userId = UUID.fromString(id);
+    boolean changed = users.grantRole(userId, code.trim()) > 0;
+    if (changed) users.bumpScopeVersion(userId);
+    Map<String, Object> response = new LinkedHashMap<>();
+    response.put("id", id);
+    response.put("roleCode", code);
+    response.put("changed", changed);
+    return response;
+  }
+
+  @RequirePermission("role:manage")
+  @GetMapping("/roles")
+  public Map<String, Object> roles() {
+    return Map.of("items", roles.selectAllOrdered().stream().map(AuthAdminController::roleView).toList());
+  }
+
+  @RequirePermission("audit:read")
+  @GetMapping("/audits")
+  public Map<String, Object> audits(@RequestParam(name = "action", defaultValue = "") String action,
+                                    @RequestParam(name = "page", defaultValue = "0") int page,
+                                    @RequestParam(name = "size", defaultValue = "20") int size) {
+    int safePage = PageResult.safePage(page);
+    int safeSize = PageResult.safeSize(size);
+    Page<AuthAuditLogEntity> result = audits.selectPageByAction(new Page<>(safePage + 1L, safeSize),
+        action.trim());
+    List<Map<String, Object>> items = result.getRecords().stream().map(AuthAdminController::auditView).toList();
+    return new PageResult<>(items, safePage, safeSize, result.getTotal()).asMap();
+  }
+
+  private static Map<String, Object> userView(AuthUserEntity user) {
+    Map<String, Object> value = new LinkedHashMap<>();
+    value.put("id", user.getId().toString());
+    value.put("phone", orEmpty(user.getPhone()));
+    value.put("email", orEmpty(user.getEmail()));
+    value.put("nickname", orEmpty(user.getNickname()));
+    value.put("status", user.getStatus());
+    value.put("createdAt", user.getCreatedAt() == null ? null : user.getCreatedAt().toString());
+    return value;
+  }
+
+  private static Map<String, Object> roleView(AuthRoleEntity role) {
+    Map<String, Object> value = new LinkedHashMap<>();
+    value.put("id", role.getId() == null ? "" : role.getId().toString());
+    value.put("code", role.getCode());
+    value.put("name", role.getName());
+    value.put("status", role.getStatus());
+    return value;
+  }
+
+  private static Map<String, Object> auditView(AuthAuditLogEntity audit) {
+    Map<String, Object> value = new LinkedHashMap<>();
+    value.put("id", audit.getId().toString());
+    value.put("actor", audit.getActorUserId() == null ? "" : audit.getActorUserId().toString());
+    value.put("action", audit.getAction());
+    value.put("resourceType", audit.getResourceType());
+    value.put("resourceId", audit.getResourceId() == null ? "" : audit.getResourceId().toString());
+    value.put("traceId", orEmpty(audit.getTraceId()));
+    value.put("createdAt", audit.getCreatedAt() == null ? null : audit.getCreatedAt().toString());
+    return value;
+  }
+
+  private static String orEmpty(String value) {
+    return value == null ? "" : value;
+  }
 }

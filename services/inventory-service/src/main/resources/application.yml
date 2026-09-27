@@ -15,5 +15,23 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    consumer:
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
 cloudticket:
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+  seat-bitmap:
+    enabled: ${CLOUDTICKET_SEAT_BITMAP_ENABLED:true}
+  redis-seat-lock:
+    enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:false}
+  inventory:
+    redis-lock:
+      enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:false}
+    events:
+      enabled: ${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:false}
+      topic: ${CLOUDTICKET_ORDER_EVENTS_TOPIC:order-events}
+      group-id: ${CLOUDTICKET_INVENTORY_EVENTS_GROUP:inventory-seat-projection}
+    reconciliation:
+      enabled: ${CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED:false}
+      poll-ms: ${CLOUDTICKET_INVENTORY_RECONCILIATION_POLL_MS:60000}

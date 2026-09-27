@@ -1,0 +1,26 @@
+package com.cloudticket.inventory.persistence.mapper;
+
+import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.cloudticket.inventory.persistence.entity.InventoryLockEntity;
+import java.util.List;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
+
+public interface InventoryLockMapper extends BaseMapper<InventoryLockEntity> {
+
+  @Select("SELECT DISTINCT order_id FROM inventory_lock WHERE active = 1 AND expires_at <= CURRENT_TIMESTAMP")
+  List<String> selectExpiredOrderIds();
+
+  @Select("SELECT l.seat_id FROM inventory_lock l JOIN inventory_seat s ON s.id=l.seat_id "
+      + "WHERE l.session_id=#{sessionId} AND l.status='CONFIRMED' AND s.status='LOCKED'")
+  List<String> selectConfirmedStillLockedSeatIds(@Param("sessionId") String sessionId);
+
+  /**
+   * Retires every active lock of an order.
+   *
+   * <p>The conditional update keeps release idempotent: a second call matches nothing and is a no-op.
+   */
+  @Update("UPDATE inventory_lock SET active = 0, status = #{status} WHERE order_id = #{orderId} AND active = 1")
+  int retireActive(@Param("orderId") String orderId, @Param("status") String status);
+}

@@ -1,3 +1,5 @@
 com\cloudticket\common\web\ApiError.class
 com\cloudticket\common\web\TraceIdFilter.class
+com\cloudticket\common\web\PageResult.class
 com\cloudticket\common\web\ReactiveTraceIdWebFilter.class
+com\cloudticket\common\web\ApiResponse.class

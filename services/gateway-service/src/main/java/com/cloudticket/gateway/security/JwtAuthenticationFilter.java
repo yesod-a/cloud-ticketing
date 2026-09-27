@@ -19,7 +19,8 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
   private final JwtTokenVerifier verifier;
   private final WebClient authClient;
   private final String internalToken;
-  public JwtAuthenticationFilter(@Value("${cloudticket.auth.jwt-signing-key:dev-only-change-me}") String key, WebClient.Builder webClient, @Value("${cloudticket.auth-service-base-url:lb://auth-service}") String authBaseUrl, @Value("${cloudticket.internal-service-token:dev-internal-token}") String internalToken) { verifier = new JwtTokenVerifier(key); this.authClient = webClient.baseUrl(authBaseUrl).build(); this.internalToken = internalToken; }
+  private final TokenStatusCache statusCache;
+  public JwtAuthenticationFilter(@Value("${cloudticket.auth.jwt-signing-key:dev-only-change-me}") String key, WebClient.Builder webClient, @Value("${cloudticket.auth-service-base-url:lb://auth-service}") String authBaseUrl, @Value("${cloudticket.internal-service-token:dev-internal-token}") String internalToken, TokenStatusCache statusCache) { verifier = new JwtTokenVerifier(key); this.authClient = webClient.baseUrl(authBaseUrl).build(); this.internalToken = internalToken; this.statusCache = statusCache; }
   @Override public int getOrder() { return -100; }
   @Override public Mono<Void> filter(ServerWebExchange exchange, GatewayFilterChain chain) {
     String path = exchange.getRequest().getURI().getPath();
@@ -34,8 +35,18 @@ public class JwtAuthenticationFilter implements GlobalFilter, Ordered {
         headers.set("X-User-Id", claims.subject()); headers.set("X-User-Roles", claims.roles());
         headers.set("X-User-Permissions", claims.permissions()); headers.set("X-User-Scopes", claims.scopes()); headers.set("X-Scope-Version", claims.scopeVersion());
       }).build();
-      return authClient.get().uri(uri -> uri.path("/api/internal/auth/token/status").queryParam("userId", claims.subject()).queryParam("scopeVersion", claims.scopeVersion()).queryParam("jti", claims.jti()).build()).header("X-Internal-Service-Token", internalToken).retrieve().bodyToMono(Status.class).flatMap(status -> status.active() ? chain.filter(exchange.mutate().request(trusted).build()) : unauthorized(exchange)).onErrorResume(error -> unauthorized(exchange));
+      return statusCache.resolve(cacheKey(claims), fetchTokenStatus(claims))
+          .onErrorResume(error -> Mono.just(false))
+          .flatMap(active -> active ? chain.filter(exchange.mutate().request(trusted).build()) : unauthorized(exchange));
     } catch (SecurityException ex) { return unauthorized(exchange); }
+  }
+  private Mono<Boolean> fetchTokenStatus(JwtTokenVerifier.Claims claims) {
+    return authClient.get().uri(uri -> uri.path("/api/internal/auth/token/status").queryParam("userId", claims.subject()).queryParam("scopeVersion", claims.scopeVersion()).queryParam("jti", claims.jti()).build())
+        .header("X-Internal-Service-Token", internalToken).retrieve().bodyToMono(Status.class).map(Status::active);
+  }
+  /** The key carries the scope version and token id, so a permission change or logout cannot reuse an entry. */
+  private static String cacheKey(JwtTokenVerifier.Claims claims) {
+    return claims.subject() + ":" + claims.scopeVersion() + ":" + claims.jti();
   }
   private ServerHttpRequest stripIdentityHeaders(ServerHttpRequest request) { return request.mutate().headers(h -> { h.remove("X-User-Id"); h.remove("X-User-Roles"); h.remove("X-User-Permissions"); h.remove("X-User-Scopes"); h.remove("X-Scope-Version"); h.remove("X-Internal-Service-Token"); }).build(); }
   private Mono<Void> unauthorized(ServerWebExchange exchange) { exchange.getResponse().setStatusCode(HttpStatus.UNAUTHORIZED); exchange.getResponse().getHeaders().set(HttpHeaders.CONTENT_TYPE, "application/json"); byte[] body = "{\"code\":\"UNAUTHORIZED\",\"message\":\"Authentication required\",\"traceId\":\"\",\"data\":null}".getBytes(StandardCharsets.UTF_8); return exchange.getResponse().writeWith(Mono.just(exchange.getResponse().bufferFactory().wrap(body))); }

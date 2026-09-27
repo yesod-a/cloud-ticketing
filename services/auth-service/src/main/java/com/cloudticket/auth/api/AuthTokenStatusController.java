@@ -1,30 +1,47 @@
 package com.cloudticket.auth.api;
 
+import com.cloudticket.auth.persistence.entity.AuthUserEntity;
+import com.cloudticket.auth.persistence.mapper.AuthRevokedAccessTokenMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
+import com.cloudticket.common.security.RequireInternalToken;
 import java.util.Map;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.web.bind.annotation.*;
+import java.util.UUID;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
 
+/** Token status check the gateway calls on every request it authenticates. */
 @RestController
+@RequireInternalToken
 @RequestMapping("/api/internal/auth/token")
 public class AuthTokenStatusController {
-  private final JdbcTemplate jdbc;
-  private final String internalToken;
 
-  public AuthTokenStatusController(JdbcTemplate jdbc, @Value("${cloudticket.internal-service-token:dev-internal-token}") String internalToken) {
-    this.jdbc = jdbc;
-    this.internalToken = internalToken;
+  private final AuthUserMapper users;
+  private final AuthRevokedAccessTokenMapper revokedTokens;
+
+  public AuthTokenStatusController(AuthUserMapper users, AuthRevokedAccessTokenMapper revokedTokens) {
+    this.users = users;
+    this.revokedTokens = revokedTokens;
   }
 
   @GetMapping("/status")
-  public Map<String, Object> status(@RequestHeader(value = "X-Internal-Service-Token", defaultValue = "") String token, @RequestParam String userId, @RequestParam String scopeVersion, @RequestParam String jti) {
-    trusted(token);
-    var rows = jdbc.query("SELECT status,scope_version FROM auth_user WHERE id=UUID_TO_BIN(?) AND NOT EXISTS (SELECT 1 FROM auth_revoked_access_token r WHERE r.jti=? AND r.expires_at>CURRENT_TIMESTAMP(6))", (r, n) -> Map.of("status", r.getString("status"), "scopeVersion", r.getLong("scope_version")), userId, jti);
-    if (rows.isEmpty()) return Map.of("active", false);
-    var row = rows.get(0);
-    return Map.of("active", "ACTIVE".equals(row.get("status")) && String.valueOf(row.get("scopeVersion")).equals(scopeVersion));
+  public Map<String, Object> status(@RequestParam String userId, @RequestParam String scopeVersion,
+                                    @RequestParam String jti) {
+    UUID id = parseUuid(userId);
+    if (id == null) return Map.of("active", false);
+    AuthUserEntity user = users.selectById(id);
+    if (user == null || revokedTokens.countActiveRevocations(jti) > 0) return Map.of("active", false);
+    long version = user.getScopeVersion() == null ? 0 : user.getScopeVersion();
+    return Map.of("active", "ACTIVE".equals(user.getStatus())
+        && String.valueOf(version).equals(scopeVersion));
   }
 
-
-  private void trusted(String token) { if (token == null || !token.equals(internalToken)) throw new SecurityException("internal authentication required"); }
+  private static UUID parseUuid(String value) {
+    try {
+      return UUID.fromString(value);
+    } catch (RuntimeException notAUuid) {
+      return null;
+    }
+  }
 }

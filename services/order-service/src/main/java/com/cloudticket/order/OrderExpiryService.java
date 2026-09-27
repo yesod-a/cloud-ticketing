@@ -2,16 +2,15 @@ package com.cloudticket.order;
 
 import com.cloudticket.common.events.EventTypes;
 import com.cloudticket.order.client.InventoryReservationClient;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import com.cloudticket.order.event.OrderExpiredPayload;
+import com.cloudticket.order.event.OutboxEventWriter;
+import com.cloudticket.order.persistence.OrderRepository;
+import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,17 +21,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class OrderExpiryService {
   private static final Logger log = LoggerFactory.getLogger(OrderExpiryService.class);
 
-  private final JdbcTemplate jdbc;
+  private final OrderRepository orders;
   private final InventoryReservationClient inventory;
+  private final OutboxEventWriter outbox;
   private final int paymentWindowMinutes;
 
   @Autowired
   public OrderExpiryService(
-      JdbcTemplate jdbc,
+      OrderRepository orders,
       InventoryReservationClient inventory,
+      OutboxEventWriter outbox,
       @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
-    this.jdbc = jdbc;
+    this.orders = orders;
     this.inventory = inventory;
+    this.outbox = outbox;
     this.paymentWindowMinutes = Math.max(1, paymentWindowMinutes);
   }
 
@@ -43,24 +45,14 @@ public class OrderExpiryService {
 
   @Transactional
   public int expirePendingOrders() {
-    List<Map<String, Object>> candidates = jdbc.query(
-        "SELECT id,user_id,session_id,seat_ids FROM ticket_order "
-            + "WHERE status='PENDING' AND created_at < TIMESTAMPADD(MINUTE, -?, CURRENT_TIMESTAMP)",
-        (rs, rowNum) -> Map.of(
-            "id", rs.getString("id"),
-            "userId", rs.getString("user_id"),
-            "sessionId", rs.getString("session_id"),
-            "seatIds", rs.getString("seat_ids")),
-        paymentWindowMinutes);
     int expired = 0;
-    for (Map<String, Object> candidate : candidates) {
-      String orderId = String.valueOf(candidate.get("id"));
-      int changed = jdbc.update(
-          "UPDATE ticket_order SET status='EXPIRED' WHERE id=? AND status='PENDING' "
-              + "AND created_at < TIMESTAMPADD(MINUTE, -?, CURRENT_TIMESTAMP)",
-          orderId, paymentWindowMinutes);
-      if (changed == 0) continue; // another scanner/request won the race
-      writeOutbox(candidate, orderId);
+    for (TicketOrderEntity candidate : orders.findExpiredCandidates(paymentWindowMinutes)) {
+      String orderId = candidate.getId();
+      if (!orders.expireIfStillPending(orderId, paymentWindowMinutes)) {
+        continue; // another scanner or request won the race
+      }
+      outbox.write(EventTypes.ORDER_EXPIRED, orderId, new OrderExpiredPayload(orderId, candidate.getUserId(),
+          candidate.getSessionId(), candidate.getSeatIds()));
       expired++;
       if (inventory != null) {
         try {
@@ -72,25 +64,5 @@ public class OrderExpiryService {
       }
     }
     return expired;
-  }
-
-  private void writeOutbox(Map<String, Object> order, String orderId) {
-    String payload = "{\"orderId\":\"" + jsonEscape(orderId)
-        + "\",\"userId\":\"" + jsonEscape(String.valueOf(order.get("userId")))
-        + "\",\"sessionId\":\"" + jsonEscape(String.valueOf(order.get("sessionId")))
-        + "\",\"seatIds\":\"" + jsonEscape(String.valueOf(order.get("seatIds"))) + "\"}";
-    jdbc.update(
-        "INSERT INTO order_outbox(event_id,event_type,aggregate_type,aggregate_id,payload,trace_id,schema_version) VALUES (?,?, 'ORDER', ?,?,?,1)",
-        UUID.randomUUID().toString(), EventTypes.ORDER_EXPIRED, orderId, payload,
-        traceId());
-  }
-
-  private static String traceId() {
-    String trace = MDC.get("traceId");
-    return trace == null || trace.isBlank() ? null : trace;
-  }
-
-  private static String jsonEscape(String value) {
-    return value.replace("\\", "\\\\").replace("\"", "\\\"");
   }
 }
