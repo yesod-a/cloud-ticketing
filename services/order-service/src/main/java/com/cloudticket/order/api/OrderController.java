@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -37,6 +39,15 @@ public class OrderController {
 
   @PostMapping
   public Map<String, Object> create(@RequestHeader("X-User-Id") String user, @RequestBody Map<String, Object> body) {
+    if (body != null && body.get("quantity") != null) {
+      if (hasText(body, "seatIds")) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+            "quantity and seatIds cannot be sent together");
+      }
+      int quantity = ((Number) body.get("quantity")).intValue();
+      return OrderViews.order(orders.createGeneralAdmission(user, text(body, "sessionId"), quantity,
+          text(body, "idempotencyKey")));
+    }
     return OrderViews.order(orders.create(user, text(body, "sessionId"), text(body, "seatIds"),
         text(body, "idempotencyKey")));
   }
@@ -131,5 +142,10 @@ public class OrderController {
   private static String text(Map<String, Object> body, String key) {
     Object value = body == null ? null : body.get(key);
     return String.valueOf(value == null ? "" : value);
+  }
+
+  private static boolean hasText(Map<String, Object> body, String key) {
+    Object value = body == null ? null : body.get(key);
+    return value != null && !String.valueOf(value).isBlank();
   }
 }

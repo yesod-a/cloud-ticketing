@@ -16,6 +16,8 @@ public class TicketOrderEntity {
   private String userId;
   private String sessionId;
   private String seatIds;
+  private Integer quantity;
+  private String ticketNumbers;
   private String idempotencyKey;
   private String requestHash;
   private String status;
@@ -35,6 +37,10 @@ public class TicketOrderEntity {
   public void setSessionId(String sessionId) { this.sessionId = sessionId; }
   public String getSeatIds() { return seatIds; }
   public void setSeatIds(String seatIds) { this.seatIds = seatIds; }
+  public Integer getQuantity() { return quantity; }
+  public void setQuantity(Integer quantity) { this.quantity = quantity; }
+  public String getTicketNumbers() { return ticketNumbers; }
+  public void setTicketNumbers(String ticketNumbers) { this.ticketNumbers = ticketNumbers; }
   public String getIdempotencyKey() { return idempotencyKey; }
   public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
   public String getRequestHash() { return requestHash; }

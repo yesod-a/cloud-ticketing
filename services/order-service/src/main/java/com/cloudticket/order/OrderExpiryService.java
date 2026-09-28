@@ -5,6 +5,7 @@ import com.cloudticket.order.client.InventoryReservationClient;
 import com.cloudticket.order.event.OrderExpiredPayload;
 import com.cloudticket.order.event.OutboxEventWriter;
 import com.cloudticket.order.persistence.OrderRepository;
+import com.cloudticket.order.persistence.UserSessionPurchaseRepository;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,17 +24,25 @@ public class OrderExpiryService {
 
   private final OrderRepository orders;
   private final InventoryReservationClient inventory;
+  private final UserSessionPurchaseRepository purchases;
   private final OutboxEventWriter outbox;
   private final int paymentWindowMinutes;
 
-  @Autowired
   public OrderExpiryService(
       OrderRepository orders,
       InventoryReservationClient inventory,
       OutboxEventWriter outbox,
       @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
+    this(orders, inventory, null, outbox, paymentWindowMinutes);
+  }
+
+  @Autowired
+  public OrderExpiryService(OrderRepository orders, InventoryReservationClient inventory,
+                            UserSessionPurchaseRepository purchases, OutboxEventWriter outbox,
+                            @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
     this.orders = orders;
     this.inventory = inventory;
+    this.purchases = purchases;
     this.outbox = outbox;
     this.paymentWindowMinutes = Math.max(1, paymentWindowMinutes);
   }
@@ -56,13 +65,20 @@ public class OrderExpiryService {
       expired++;
       if (inventory != null) {
         try {
-          inventory.release(orderId);
+          boolean generalAdmission = candidate.getQuantity() != null && candidate.getQuantity() > 0;
+          if (generalAdmission) {
+            inventory.releaseQuantity(orderId);
+            if (purchases != null) purchases.release(orderId, candidate.getUserId(), candidate.getSessionId(), candidate.getQuantity());
+          } else {
+            inventory.release(orderId);
+          }
         } catch (RuntimeException releaseFailure) {
           // Expiration is durable and idempotent; a later inventory reconciliation can retry release.
           log.warn("Inventory release failed for expired order {}", orderId, releaseFailure);
         }
       }
     }
+    if (purchases != null) purchases.expireReservations();
     return expired;
   }
 }

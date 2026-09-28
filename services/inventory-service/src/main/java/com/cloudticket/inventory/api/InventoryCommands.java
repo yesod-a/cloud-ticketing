@@ -55,4 +55,14 @@ public final class InventoryCommands {
       }
     }
   }
+
+  public record ReserveAdmission(String orderId, String userId, String sessionId, Integer quantity,
+                                 Long ttlSeconds) {
+    public int quantityOrZero() { return quantity == null ? 0 : quantity; }
+    public long ttlOrDefault() { return ttlSeconds == null ? 900L : ttlSeconds; }
+  }
+
+  public record EnsureAdmission(String sessionId, Integer capacity) {
+    public int capacityOrZero() { return capacity == null ? 0 : capacity; }
+  }
 }

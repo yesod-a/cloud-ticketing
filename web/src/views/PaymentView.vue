@@ -59,6 +59,7 @@ onUnmounted(() => { if (timer) clearInterval(timer) })
         </button>
             <div class="payment-meta"><span>订单号</span><code>{{ orderId }}</code></div>
         <div class="payment-meta"><span>座位数量</span><span>{{ payment?.seatCount ?? 0 }} 个</span></div>
+        <div v-if="payment?.quantity" class="payment-meta"><span>通票票号</span><span>{{ payment.ticketNumbers || '待出票' }}</span></div>
         <div class="payment-meta"><span>应付金额</span><strong class="amount">¥{{ amount }}</strong></div>
         <div class="payment-meta"><span>剩余时间</span><span>{{ countdown }}</span></div>
       </div>

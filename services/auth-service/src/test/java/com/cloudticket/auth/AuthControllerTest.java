@@ -17,9 +17,11 @@ import com.cloudticket.common.security.CallerContext;
 import com.cloudticket.common.security.CallerContextHolder;
 import jakarta.validation.Validation;
 import java.util.UUID;
+import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockMultipartFile;
 
 class AuthControllerTest {
 
@@ -82,5 +84,72 @@ class AuthControllerTest {
         () -> CallerContextHolder.scoped(new CallerContext("", "", "", "trace", "dev-internal-token"),
             () -> controller.me("not-a-uuid", null, new MockHttpServletRequest())));
     verify(mock(AuthService.class), never()).me(org.mockito.ArgumentMatchers.any());
+  }
+
+  @Test
+  void profileUpdateUsesTheTrustedUserIdAndReturnsAvatarUrl() {
+    AuthService auth = mock(AuthService.class);
+    UUID userId = UUID.randomUUID();
+    AuthUserEntity user = new AuthUserEntity();
+    user.setId(userId);
+    user.setNickname("Updated");
+    user.setAvatarFilename("avatar.png");
+    user.setStatus("ACTIVE");
+    when(auth.updateNickname(userId, "Updated")).thenReturn(user);
+    var controller = TestAspects.authorized(new AuthController(auth), null);
+
+    var response = CallerContextHolder.scoped(
+        new CallerContext("", "", userId.toString(), "trace", "dev-internal-token"),
+        () -> controller.updateProfile(new AuthDtos.ProfileUpdateRequest("Updated"),
+            userId.toString(), new MockHttpServletRequest()));
+
+    assertEquals("/api/auth/avatars/" + userId, response.getBody().data().avatarUrl());
+    verify(auth).updateNickname(userId, "Updated");
+  }
+
+  @Test
+  void passwordChangeUsesTheTrustedUserId() {
+    AuthService auth = mock(AuthService.class);
+    UUID userId = UUID.randomUUID();
+    var controller = TestAspects.authorized(new AuthController(auth), null);
+
+    var response = CallerContextHolder.scoped(
+        new CallerContext("", "", userId.toString(), "trace", "dev-internal-token"),
+        () -> controller.changePassword(new AuthDtos.PasswordChangeRequest("OldPass1", "NewPass1"),
+            userId.toString(), new MockHttpServletRequest()));
+
+    assertEquals("OK", response.getBody().code());
+    verify(auth).changePassword(userId, "OldPass1", "NewPass1");
+  }
+
+  @Test
+  void avatarUploadUsesTheMultipartFileAndTrustedUserId() {
+    AuthService auth = mock(AuthService.class);
+    UUID userId = UUID.randomUUID();
+    AuthUserEntity user = new AuthUserEntity();
+    user.setId(userId);
+    user.setStatus("ACTIVE");
+    when(auth.updateAvatar(org.mockito.ArgumentMatchers.eq(userId),
+        org.mockito.ArgumentMatchers.any())).thenReturn(user);
+    var controller = TestAspects.authorized(new AuthController(auth), null);
+
+    CallerContextHolder.scoped(
+        new CallerContext("", "", userId.toString(), "trace", "dev-internal-token"),
+        () -> controller.uploadAvatar(new MockMultipartFile("file", "a.png", "image/png", new byte[] {1}),
+            userId.toString(), new MockHttpServletRequest()));
+
+    verify(auth).updateAvatar(org.mockito.ArgumentMatchers.eq(userId),
+        org.mockito.ArgumentMatchers.any(MockMultipartFile.class));
+  }
+
+  @Test
+  void missingAvatarIsReportedAsNotFound() {
+    AuthService auth = mock(AuthService.class);
+    UUID userId = UUID.randomUUID();
+    when(auth.openAvatar(userId)).thenReturn(Optional.empty());
+    var controller = TestAspects.authorized(new AuthController(auth), null);
+
+    assertThrows(AuthService.AvatarNotFoundException.class,
+        () -> controller.avatar(userId));
   }
 }

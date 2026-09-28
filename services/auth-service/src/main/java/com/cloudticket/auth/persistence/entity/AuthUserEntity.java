@@ -23,6 +23,7 @@ public class AuthUserEntity {
   private String email;
   private String passwordHash;
   private String nickname;
+  private String avatarFilename;
   private String status;
   private Integer failedLoginCount;
   private Instant lockedUntil;
@@ -43,6 +44,8 @@ public class AuthUserEntity {
   public void setPasswordHash(String passwordHash) { this.passwordHash = passwordHash; }
   public String getNickname() { return nickname; }
   public void setNickname(String nickname) { this.nickname = nickname; }
+  public String getAvatarFilename() { return avatarFilename; }
+  public void setAvatarFilename(String avatarFilename) { this.avatarFilename = avatarFilename; }
   public String getStatus() { return status; }
   public void setStatus(String status) { this.status = status; }
   public Integer getFailedLoginCount() { return failedLoginCount; }

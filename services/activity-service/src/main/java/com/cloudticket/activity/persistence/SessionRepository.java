@@ -57,8 +57,16 @@ public class SessionRepository {
 
   public Session create(String activityId, String venueId, Instant startsAt, Instant endsAt, String status,
                         int priceMinor) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, "GRID", 0, 0);
+  }
+
+  public Session create(String activityId, String venueId, Instant startsAt, Instant endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit) {
     requireTimeWindow(startsAt, endsAt);
     requirePrice(priceMinor);
+    String mode = requireMode(layoutMode);
+    requireCapacity(mode, capacity);
+    requirePurchaseLimit(purchaseLimit);
     SessionEntity entity = new SessionEntity();
     entity.setId(UUID.randomUUID().toString());
     entity.setActivityId(activityId);
@@ -67,18 +75,39 @@ public class SessionRepository {
     entity.setEndsAt(endsAt);
     entity.setStatus(status == null || status.isBlank() ? DRAFT : status);
     entity.setPriceMinor(priceMinor);
+    entity.setLayoutMode(mode);
+    entity.setCapacity(capacity);
+    entity.setPurchaseLimit(purchaseLimit);
     sessions.insert(entity);
     return require(entity.getId());
   }
 
   public Session update(String sessionId, Instant startsAt, Instant endsAt, String status, int priceMinor) {
+    Session current = require(sessionId);
+    return update(sessionId, startsAt, endsAt, status, priceMinor, current.layoutMode(), current.capacity(),
+        current.purchaseLimit());
+  }
+
+  public Session update(String sessionId, Instant startsAt, Instant endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit) {
     requireTimeWindow(startsAt, endsAt);
     requirePrice(priceMinor);
+    String mode = requireMode(layoutMode);
+    requireCapacity(mode, capacity);
+    requirePurchaseLimit(purchaseLimit);
+    Session current = require(sessionId);
+    if (!"DRAFT".equalsIgnoreCase(current.status())
+        && (!mode.equalsIgnoreCase(current.layoutMode()) || capacity != current.capacity())) {
+      throw new IllegalStateException("layout mode and capacity are immutable after publishing");
+    }
     sessions.update(null, Wrappers.<SessionEntity>lambdaUpdate()
         .set(SessionEntity::getStartsAt, startsAt)
         .set(SessionEntity::getEndsAt, endsAt)
         .set(SessionEntity::getStatus, status == null || status.isBlank() ? DRAFT : status)
         .set(SessionEntity::getPriceMinor, priceMinor)
+        .set(SessionEntity::getLayoutMode, mode)
+        .set(SessionEntity::getCapacity, capacity)
+        .set(SessionEntity::getPurchaseLimit, purchaseLimit)
         .eq(SessionEntity::getId, sessionId));
     return require(sessionId);
   }
@@ -147,7 +176,10 @@ public class SessionRepository {
   private Session view(SessionEntity row, Map<String, String> venueNames) {
     return Session.from(row.getId(), row.getActivityId(), row.getStartsAt(), row.getEndsAt(),
         venueNames.getOrDefault(row.getVenueId(), ""), row.getStatus(),
-        row.getPriceMinor() == null ? 0 : row.getPriceMinor());
+        row.getPriceMinor() == null ? 0 : row.getPriceMinor(),
+        row.getLayoutMode() == null || row.getLayoutMode().isBlank() ? "GRID" : row.getLayoutMode(),
+        row.getCapacity() == null ? 0 : row.getCapacity(),
+        row.getPurchaseLimit() == null ? 0 : row.getPurchaseLimit());
   }
 
   private Map<String, String> venueNames(List<SessionEntity> rows) {
@@ -166,5 +198,24 @@ public class SessionRepository {
 
   private static void requirePrice(int priceMinor) {
     if (priceMinor < 0) throw new IllegalArgumentException("price must be non-negative");
+  }
+
+  private static String requireMode(String mode) {
+    String clean = mode == null || mode.isBlank() ? "GRID" : mode.trim().toUpperCase(java.util.Locale.ROOT);
+    if (!java.util.Set.of("GRID", "ROWS", "GENERAL_ADMISSION").contains(clean)) {
+      throw new IllegalArgumentException("layoutMode must be GRID, ROWS or GENERAL_ADMISSION");
+    }
+    return clean;
+  }
+
+  private static void requireCapacity(String mode, int capacity) {
+    if (capacity < 0) throw new IllegalArgumentException("capacity must be non-negative");
+    if ("GENERAL_ADMISSION".equals(mode) && capacity <= 0) {
+      throw new IllegalArgumentException("capacity must be positive for GENERAL_ADMISSION");
+    }
+  }
+
+  private static void requirePurchaseLimit(int purchaseLimit) {
+    if (purchaseLimit < 0) throw new IllegalArgumentException("purchaseLimit must be non-negative");
   }
 }

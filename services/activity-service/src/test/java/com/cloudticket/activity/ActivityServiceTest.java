@@ -8,6 +8,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.cloudticket.activity.persistence.ActivityRepository;
+import com.cloudticket.activity.persistence.ActivityImageRepository;
 import com.cloudticket.activity.persistence.AuditRepository;
 import com.cloudticket.activity.persistence.SessionRepository;
 import com.cloudticket.activity.persistence.SessionSeatRepository;
@@ -24,7 +25,9 @@ class ActivityServiceTest {
   private final SessionSeatRepository sessionSeats = mock(SessionSeatRepository.class);
   private final AuditRepository audits = mock(AuditRepository.class);
   private final VenueRepository venues = mock(VenueRepository.class);
+  private final ActivityImageRepository images = mock(ActivityImageRepository.class);
   private final ActivityService service = new ActivityService(activities, sessions, sessionSeats, audits, venues);
+  private final ActivityService serviceWithImages = new ActivityService(activities, sessions, sessionSeats, audits, venues, images);
 
   @Test
   void activityWithSessionsCannotBeDeleted() {
@@ -42,6 +45,16 @@ class ActivityServiceTest {
 
     verify(venues).detachFromActivity("activity-1");
     verify(activities).delete("activity-1");
+  }
+
+  @Test
+  void activityDeletionQueuesItsImagesBeforeRemovingTheActivity() {
+    when(sessions.countForActivity("activity-2")).thenReturn(0L);
+
+    serviceWithImages.delete("activity-2");
+
+    verify(images).markDeletePendingForActivity("activity-2");
+    verify(activities).delete("activity-2");
   }
 
   @Test

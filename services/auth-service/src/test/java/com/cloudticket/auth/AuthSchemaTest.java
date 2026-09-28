@@ -1,12 +1,15 @@
 package com.cloudticket.auth;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.cloudticket.auth.persistence.mapper.AuthRefreshTokenMapper;
+import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
 import java.nio.charset.StandardCharsets;
 import java.util.regex.Pattern;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Select;
 import org.junit.jupiter.api.Test;
 
 class AuthSchemaTest {
@@ -46,5 +49,35 @@ class AuthSchemaTest {
     Update update = method.getAnnotation(Update.class);
     assertNotNull(update, "revoking a refresh token must be a modifying mapper statement");
     assertTrue(update.value()[0].contains("revoked_at"));
+  }
+
+  @Test
+  void profileMigrationAndExplicitProfileMapperStatementsExist() {
+    var resource = getClass().getResourceAsStream("/db/migration/V4__user_profile.sql");
+    assertNotNull(resource, "profile migration must be available to Flyway");
+    try (resource) {
+      var sql = new String(resource.readAllBytes(), StandardCharsets.UTF_8);
+      assertTrue(sql.contains("avatar_filename VARCHAR(255) NULL"));
+    } catch (Exception failure) {
+      throw new AssertionError(failure);
+    }
+
+    assertTrue(java.util.Arrays.stream(com.cloudticket.auth.persistence.entity.AuthUserEntity.class
+        .getDeclaredFields()).anyMatch(field -> field.getName().equals("avatarFilename")));
+    assertTrue(java.util.Arrays.stream(AuthUserMapper.class.getMethods())
+        .anyMatch(method -> method.getName().equals("selectProfile")
+            && method.isAnnotationPresent(Select.class)));
+    assertProfileUpdate("updateNickname", "nickname = #{nickname}");
+    assertProfileUpdate("updateAvatarFilename", "avatar_filename = #{filename}");
+  }
+
+  private static void assertProfileUpdate(String methodName, String expectedSql) {
+    var method = java.util.Arrays.stream(AuthUserMapper.class.getMethods())
+        .filter(candidate -> candidate.getName().equals(methodName)).findFirst();
+    assertTrue(method.isPresent(), "missing mapper method " + methodName);
+    var update = method.get().getAnnotation(Update.class);
+    assertNotNull(update, methodName + " must be an explicit update statement");
+    assertTrue(update.value()[0].contains(expectedSql));
+    assertFalse(update.value()[0].contains("password_hash"));
   }
 }

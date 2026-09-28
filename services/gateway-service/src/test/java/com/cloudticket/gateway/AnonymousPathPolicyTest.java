@@ -11,6 +11,8 @@ class AnonymousPathPolicyTest {
     assertTrue(policy.allows("POST", "/api/auth/register"));
     assertTrue(policy.allows("POST", "/api/auth/refresh"));
     assertFalse(policy.allows("GET", "/api/auth/me"));
+    assertTrue(policy.allows("GET", "/api/auth/avatars/00000000-0000-0000-0000-000000000001"));
+    assertFalse(policy.allows("POST", "/api/auth/me/password"));
     assertFalse(policy.allows("POST", "/api/auth/logout"));
     assertTrue(policy.allows("GET", "/api/activities"));
     assertTrue(policy.allows("GET", "/api/activities/abc"));

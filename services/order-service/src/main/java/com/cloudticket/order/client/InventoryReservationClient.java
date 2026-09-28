@@ -2,6 +2,7 @@ package com.cloudticket.order.client;
 
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
@@ -28,6 +29,21 @@ public class InventoryReservationClient {
       throw new SeatUnavailableException();
     }
   }
+
+  public List<Long> reserveQuantity(String orderId, String userId, String sessionId, int quantity) {
+    try {
+      Map<String, Object> response = internal.postForBody(baseUrl, "/api/internal/inventory/admission/reservations",
+          Map.of("orderId", orderId, "userId", userId, "sessionId", sessionId, "quantity", quantity, "ttlSeconds", 900),
+          new ParameterizedTypeReference<>() {});
+      Object values = response == null ? null : response.get("ticketNumbers");
+      if (values instanceof List<?> list) return list.stream().map(v -> ((Number) v).longValue()).toList();
+      return List.of();
+    } catch (HttpClientErrorException.Conflict conflict) { throw new SeatUnavailableException(); }
+  }
+
+  public void releaseQuantity(String orderId) { internal.post(baseUrl, "/api/internal/inventory/admission/reservations/{orderId}/release", null, orderId); }
+  public void releaseRefunded(String orderId) { internal.post(baseUrl, "/api/internal/inventory/admission/reservations/{orderId}/refund-release", null, orderId); }
+  public void confirmQuantity(String orderId) { internal.post(baseUrl, "/api/internal/inventory/admission/reservations/{orderId}/confirm", null, orderId); }
 
   public void release(String orderId) {
     internal.post(baseUrl, "/api/internal/inventory/locks/{orderId}/release", null, orderId);

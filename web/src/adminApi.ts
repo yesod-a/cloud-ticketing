@@ -1,16 +1,21 @@
 import { api } from './auth/authApi'
 export type Page<T>={items:T[];page:number;size:number;total:number;totalPages:number}
-export type AdminActivity={id:string;title:string;organizer:string;status:string;layoutFrozen:boolean}
+export type AdminActivity={id:string;title:string;organizer:string;description?:string;status:string;layoutFrozen:boolean}
 export const adminActivities=(params:{keyword?:string;status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminActivity>>(`/api/admin/activities?${q}`)}
-export const createAdminActivity=(title:string,organizer:string)=>api<AdminActivity>('/api/admin/activities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,organizer})})
-export const updateAdminActivity=(id:string,title:string,organizer:string)=>api<AdminActivity>(`/api/admin/activities/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,organizer})})
+export const createAdminActivity=(title:string,organizer:string,description='')=>api<AdminActivity>('/api/admin/activities',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,organizer,description})})
+export const updateAdminActivity=(id:string,title:string,organizer:string,description='')=>api<AdminActivity>(`/api/admin/activities/${id}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({title,organizer,description})})
+export type ActivityImage={id:string;url?:string;imageType?:'COVER'|'DETAIL';sortOrder?:number;contentType?:string}
+export const uploadAdminActivityImage=(id:string,file:File,imageType:'COVER'|'DETAIL')=>{const form=new FormData();form.append('file',file);form.append('imageType',imageType);return api<ActivityImage>(`/api/admin/activities/${id}/images`,{method:'POST',body:form})}
+export const deleteAdminActivityImage=(activityId:string,imageId:string)=>api<{code:string}>(`/api/admin/activities/${activityId}/images/${imageId}`,{method:'DELETE'})
+export const setAdminActivityCover=(activityId:string,imageId:string)=>api<ActivityImage>(`/api/admin/activities/${activityId}/images/${imageId}/cover`,{method:'PUT'})
+export const reorderAdminActivityImages=(activityId:string,imageIds:string[])=>api<{code:string}>(`/api/admin/activities/${activityId}/images/order`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({imageIds})})
 export const publishAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/publish`,{method:'POST'})
 export const offlineAdminActivity=(id:string)=>api<AdminActivity>(`/api/admin/activities/${id}/offline`,{method:'POST'})
 export const deleteAdminActivity=(id:string)=>api<{code:string}>(`/api/admin/activities/${id}`,{method:'DELETE'})
-export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string;priceMinor:number}
+export type AdminSession={id:string;activityId:string;startsAt:string;endsAt?:string;venue:string;status:string;priceMinor:number;layoutMode?:'GRID'|'ROWS'|'GENERAL_ADMISSION';capacity?:number;purchaseLimit?:number}
 export const adminActivitySessions=(activityId:string,params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminSession>>(`/api/admin/activities/${activityId}/sessions?${q}`)}
-export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string;price?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
-export const updateAdminSession=(activityId:string,sessionId:string,body:{startsAt:string;endsAt:string;status?:string;price?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const createAdminSession=(activityId:string,body:{venueId:string;startsAt:string;endsAt:string;status?:string;price?:number;layoutMode?:string;capacity?:number;purchaseLimit?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
+export const updateAdminSession=(activityId:string,sessionId:string,body:{startsAt:string;endsAt:string;status?:string;price?:number;layoutMode?:string;capacity?:number;purchaseLimit?:number})=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
 export const publishAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/publish`,{method:'POST'})
 export const offlineAdminSession=(activityId:string,sessionId:string)=>api<AdminSession>(`/api/admin/activities/${activityId}/sessions/${sessionId}/offline`,{method:'POST'})
 export const deleteAdminSession=(activityId:string,sessionId:string)=>api<{code:string}>(`/api/admin/activities/${activityId}/sessions/${sessionId}`,{method:'DELETE'})
@@ -29,9 +34,9 @@ export type VenueLayoutRow={rowLabel:string;seatCount:number;startSeatNumber?:nu
 export const generateAdminVenueLayout=(venueId:string,body:{mode:'GRID'|'ROWS';areaLabel?:string;rowCount?:number;seatsPerRow?:number;rowLabelType?:'LETTER'|'NUMBER';startSeatNumber?:number;rows?:VenueLayoutRow[]})=>api<AdminVenueSeat[]>(`/api/admin/venues/${venueId}/layout`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)})
 export const toLocalIso=(value:string)=>new Date(value).toISOString()
 export const assertTimeOrder=(startsAt:string,endsAt:string):boolean=>Boolean(startsAt&&endsAt&&new Date(startsAt).getTime()<new Date(endsAt).getTime())
-export type AdminOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string}
+export type AdminOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string;quantity?:number;ticketNumbers?:string;amountMinor?:number}
 export const adminOrders=(params:{status?:string;page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<AdminOrder>>(`/api/orders/admin?${q}`)}
-export type UserOrder={id:string;userId:string;sessionId:string;seatIds:string;status:string;amountMinor:number;createdAt:string;updatedAt:string}
+export type UserOrder={id:string;userId:string;sessionId:string;seatIds:string;quantity?:number;ticketNumbers?:string;status:string;amountMinor:number;createdAt:string;updatedAt:string}
 export const myOrders=(params:{page?:number;size?:number}={})=>{const q=new URLSearchParams();Object.entries(params).forEach(([k,v])=>v!==undefined&&q.set(k,String(v)));return api<Page<UserOrder>>(`/api/orders/me?${q}`)}
 export const cancelOrder=(id:string)=>api<UserOrder>(`/api/orders/${id}/cancel`,{method:'POST'})
 export const requestOrderRefund=(id:string,reason:string)=>api<RefundRequest>(`/api/orders/${id}/refund`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({reason})})

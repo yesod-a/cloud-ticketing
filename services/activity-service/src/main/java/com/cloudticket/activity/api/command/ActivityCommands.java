@@ -10,7 +10,11 @@ public final class ActivityCommands {
 
   private ActivityCommands() {}
 
-  public record CreateActivity(String title, String organizer) {}
+  public record CreateActivity(String title, String organizer, String description) {
+    public CreateActivity(String title, String organizer) { this(title, organizer, ""); }
+  }
 
-  public record UpdateActivity(String title, String organizer) {}
+  public record UpdateActivity(String title, String organizer, String description) {
+    public UpdateActivity(String title, String organizer) { this(title, organizer, ""); }
+  }
 }

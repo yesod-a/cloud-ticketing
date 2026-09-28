@@ -9,13 +9,20 @@ import java.util.List;
  * runtime. The command object is bound once at the API boundary and the strategies work with fields.
  */
 public record SeatLayoutRules(String mode, String areaLabel, Integer rowCount, Integer seatsPerRow,
-                              String rowLabelType, Integer startSeatNumber, List<Row> rows) {
+                              String rowLabelType, Integer startSeatNumber, List<Row> rows,
+                              Integer capacity) {
+
+  public SeatLayoutRules(String mode, String areaLabel, Integer rowCount, Integer seatsPerRow,
+                         String rowLabelType, Integer startSeatNumber, List<Row> rows) {
+    this(mode, areaLabel, rowCount, seatsPerRow, rowLabelType, startSeatNumber, rows, null);
+  }
 
   public SeatLayoutRules {
     mode = mode == null || mode.isBlank() ? "GRID" : mode.trim();
     areaLabel = areaLabel == null ? "" : areaLabel.trim();
     rowLabelType = rowLabelType == null ? "" : rowLabelType.trim();
     rows = rows == null ? List.of() : List.copyOf(rows);
+    if (capacity != null && capacity < 0) throw new IllegalArgumentException("capacity must be non-negative");
   }
 
   public boolean lettersAsRowLabels() {
@@ -24,6 +31,10 @@ public record SeatLayoutRules(String mode, String areaLabel, Integer rowCount, I
 
   public int startSeatNumberOr(int fallback) {
     return Math.max(1, startSeatNumber == null ? fallback : startSeatNumber);
+  }
+
+  public int capacityOrZero() {
+    return capacity == null ? 0 : capacity;
   }
 
   public record Row(String rowLabel, Integer seatCount, Integer startSeatNumber) {

@@ -4,6 +4,7 @@ import com.cloudticket.order.client.InventoryReservationClient;
 import com.cloudticket.order.payment.PaymentChannel;
 import com.cloudticket.order.payment.PaymentChannelRegistry;
 import com.cloudticket.order.persistence.PaymentRepository;
+import com.cloudticket.order.persistence.UserSessionPurchaseRepository;
 import com.cloudticket.order.persistence.entity.PaymentEntity;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import java.security.SecureRandom;
@@ -24,20 +25,23 @@ public class PaymentService {
 
   private final PaymentRepository store;
   private final InventoryReservationClient inventory;
+  private final UserSessionPurchaseRepository purchases;
   private final QrCodeGenerator qr;
   private final PaymentChannelRegistry channels;
   private final int paymentWindowMinutes;
 
   public PaymentService(PaymentRepository store, QrCodeGenerator qr, PaymentChannelRegistry channels) {
-    this(store, null, qr, channels, 15);
+    this(store, null, null, qr, channels, 15);
   }
 
   @Autowired
-  public PaymentService(PaymentRepository store, InventoryReservationClient inventory, QrCodeGenerator qr,
+  public PaymentService(PaymentRepository store, InventoryReservationClient inventory,
+                        UserSessionPurchaseRepository purchases, QrCodeGenerator qr,
                         PaymentChannelRegistry channels,
                         @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
     this.store = store;
     this.inventory = inventory;
+    this.purchases = purchases;
     this.qr = qr;
     this.channels = channels;
     this.paymentWindowMinutes = Math.max(1, paymentWindowMinutes);
@@ -61,13 +65,31 @@ public class PaymentService {
     TicketOrderEntity order = ownedOrder(orderId, userId);
     PaymentEntity existing = store.findPaymentByOrder(orderId)
         .orElseThrow(() -> new IllegalStateException("payment intent required"));
-    if ("SUCCESS".equals(existing.getStatus())) return view(order, existing);
+    if ("SUCCESS".equals(existing.getStatus())) {
+      // Payment state is durable, while inventory confirmation is a remote side effect.
+      // Retrying payment must therefore also retry the idempotent inventory transition.
+      confirmInventory(order);
+      return view(order, existing);
+    }
     requirePayable(order);
     PaymentChannel channel = channels.resolve(existing.getMethod());
     PaymentEntity paid = store.markPaid(orderId, existing.getId(), channel.newTransactionId());
-    if (inventory != null) inventory.confirm(orderId);
+    confirmInventory(order);
     TicketOrderEntity refreshed = store.findOrder(orderId).orElse(order);
     return view(refreshed, paid);
+  }
+
+  private static boolean isGeneralAdmission(TicketOrderEntity order) {
+    return order.getQuantity() != null && order.getQuantity() > 0;
+  }
+
+  private void confirmInventory(TicketOrderEntity order) {
+    if (isGeneralAdmission(order)) {
+      if (inventory != null) inventory.confirmQuantity(order.getId());
+      if (purchases != null) purchases.activate(order.getId(), order.getUserId(), order.getSessionId(), order.getQuantity());
+    } else if (inventory != null) {
+      inventory.confirm(order.getId());
+    }
   }
 
   private TicketOrderEntity ownedOrder(String orderId, String userId) {
@@ -103,6 +125,8 @@ public class PaymentService {
     value.put("orderStatus", order.getStatus());
     value.put("seatCount", order.getSeatIds() == null || order.getSeatIds().isBlank()
         ? 0 : order.getSeatIds().split(",").length);
+    value.put("quantity", order.getQuantity() == null ? 0 : order.getQuantity());
+    value.put("ticketNumbers", order.getTicketNumbers() == null ? "" : order.getTicketNumbers());
     value.put("qrContent", qrContent);
     value.put("qrCode", qr.toDataUrl(qrContent));
     value.put("expiresAt", expiresAt.toString());

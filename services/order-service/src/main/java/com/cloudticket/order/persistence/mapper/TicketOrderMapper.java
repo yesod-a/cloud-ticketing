@@ -9,7 +9,7 @@ import org.apache.ibatis.annotations.Update;
 
 public interface TicketOrderMapper extends BaseMapper<TicketOrderEntity> {
 
-  @Select("SELECT id,user_id,session_id,seat_ids,idempotency_key,request_hash,status,amount_minor,created_at,updated_at "
+  @Select("SELECT id,user_id,session_id,seat_ids,quantity,ticket_numbers,idempotency_key,request_hash,status,amount_minor,created_at,updated_at "
       + "FROM ticket_order WHERE status='PENDING' AND created_at < TIMESTAMPADD(MINUTE, -#{minutes}, CURRENT_TIMESTAMP)")
   List<TicketOrderEntity> selectExpiredCandidates(@Param("minutes") int minutes);
 
@@ -21,7 +21,7 @@ public interface TicketOrderMapper extends BaseMapper<TicketOrderEntity> {
       + "AND created_at < TIMESTAMPADD(MINUTE, -#{minutes}, CURRENT_TIMESTAMP)")
   int expireIfStillPending(@Param("id") String id, @Param("minutes") int minutes);
 
-  @Update("UPDATE ticket_order SET status='CANCELLED' WHERE id=#{id} AND status IN ('PENDING','PAID')")
+  @Update("UPDATE ticket_order SET status='CANCELLED' WHERE id=#{id} AND status='PENDING'")
   int cancelIfCancellable(@Param("id") String id);
 
   @Update("UPDATE ticket_order SET status='PAID' WHERE id=#{id} AND status='PENDING'")

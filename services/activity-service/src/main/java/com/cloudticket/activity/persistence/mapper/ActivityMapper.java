@@ -11,11 +11,11 @@ import org.apache.ibatis.annotations.Update;
 public interface ActivityMapper extends BaseMapper<ActivityEntity> {
 
   /** An activity is publicly visible only while it has at least one on-sale session. */
-  @Select("SELECT DISTINCT a.id,a.title,a.organizer,a.status,a.layout_frozen,a.created_at FROM activity a "
+  @Select("SELECT DISTINCT a.id,a.title,a.organizer,a.description,a.status,a.layout_frozen,a.created_at FROM activity a "
       + "JOIN activity_session s ON s.activity_id = a.id WHERE s.status = 'ONSALE' ORDER BY a.title")
   List<ActivityEntity> selectPublic();
 
-  @Select("SELECT a.id,a.title,a.organizer,a.status,a.layout_frozen,a.created_at FROM activity a "
+  @Select("SELECT a.id,a.title,a.organizer,a.description,a.status,a.layout_frozen,a.created_at FROM activity a "
       + "JOIN activity_session s ON s.activity_id = a.id WHERE s.status = 'ONSALE' "
       + "AND (#{keyword} = '' OR a.title LIKE CONCAT('%', #{keyword}, '%')) "
       + "AND (#{organizer} = '' OR a.organizer LIKE CONCAT('%', #{organizer}, '%')) "
@@ -27,7 +27,7 @@ public interface ActivityMapper extends BaseMapper<ActivityEntity> {
    * Administrative listing for an operator limited to resource scopes: the visibility rule runs in
    * the database so paging never counts rows the caller may not read.
    */
-  @Select("SELECT a.id,a.title,a.organizer,a.status,a.layout_frozen,a.created_at FROM activity a "
+  @Select("SELECT a.id,a.title,a.organizer,a.description,a.status,a.layout_frozen,a.created_at FROM activity a "
       + "WHERE (#{keyword} = '' OR a.title LIKE CONCAT('%', #{keyword}, '%')) "
       + "AND (#{status} = '' OR a.status = #{status}) "
       + "AND (FIND_IN_SET(CONCAT('ACTIVITY:', a.id), REPLACE(#{scopes}, ' ', '')) > 0 "

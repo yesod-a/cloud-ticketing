@@ -4,6 +4,7 @@ import com.cloudticket.activity.domain.Activity;
 import com.cloudticket.activity.domain.Audit;
 import com.cloudticket.activity.domain.Seat;
 import com.cloudticket.activity.persistence.ActivityRepository;
+import com.cloudticket.activity.persistence.ActivityImageRepository;
 import com.cloudticket.activity.persistence.AuditRepository;
 import com.cloudticket.activity.persistence.SessionRepository;
 import com.cloudticket.activity.persistence.SessionSeatRepository;
@@ -24,23 +25,40 @@ public class ActivityService {
   private final SessionSeatRepository sessionSeats;
   private final AuditRepository audits;
   private final VenueRepository venues;
+  private final ActivityImageRepository images;
 
   public ActivityService(ActivityRepository activities, SessionRepository sessions,
                           SessionSeatRepository sessionSeats, AuditRepository audits,
                           VenueRepository venues) {
+    this(activities, sessions, sessionSeats, audits, venues, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public ActivityService(ActivityRepository activities, SessionRepository sessions,
+                          SessionSeatRepository sessionSeats, AuditRepository audits,
+                          VenueRepository venues, ActivityImageRepository images) {
     this.activities = activities;
     this.sessions = sessions;
     this.sessionSeats = sessionSeats;
     this.audits = audits;
     this.venues = venues;
+    this.images = images;
   }
 
   public Activity create(String title, String organizer) {
     return activities.create(title, organizer);
   }
 
+  public Activity create(String title, String organizer, String description) {
+    return activities.create(title, organizer, description);
+  }
+
   public Activity update(String id, String title, String organizer) {
     return activities.update(id, title, organizer);
+  }
+
+  public Activity update(String id, String title, String organizer, String description) {
+    return activities.update(id, title, organizer, description);
   }
 
   public Activity publish(String id) {
@@ -69,6 +87,7 @@ public class ActivityService {
       throw new IllegalStateException("activity has sessions and cannot be deleted");
     }
     venues.detachFromActivity(id);
+    if (images != null) images.markDeletePendingForActivity(id);
     activities.delete(id);
   }
 

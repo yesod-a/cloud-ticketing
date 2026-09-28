@@ -9,6 +9,7 @@ import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestClient;
@@ -57,6 +58,13 @@ public class InternalServiceClient {
         .contentType(MediaType.APPLICATION_JSON)
         .body(body == null ? Map.of() : body)
         .retrieve().toBodilessEntity());
+  }
+
+  public <T> T postForBody(String baseUrl, String uri, Object body,
+                           ParameterizedTypeReference<T> responseType, Object... uriVariables) {
+    return withRetry("POST " + uri, () -> client(baseUrl).post().uri(uri, uriVariables)
+        .contentType(MediaType.APPLICATION_JSON).body(body == null ? Map.of() : body)
+        .retrieve().body(responseType));
   }
 
   private RestClient client(String baseUrl) {

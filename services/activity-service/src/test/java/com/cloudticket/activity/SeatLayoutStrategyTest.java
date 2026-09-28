@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.cloudticket.activity.domain.SeatLayoutRules;
 import com.cloudticket.activity.domain.VenueSeat;
 import com.cloudticket.activity.layout.GridSeatLayoutStrategy;
+import com.cloudticket.activity.layout.GeneralAdmissionLayoutStrategy;
 import com.cloudticket.activity.layout.RowSeatLayoutStrategy;
 import com.cloudticket.activity.layout.SeatLayoutStrategyRegistry;
 import java.util.List;
@@ -14,7 +15,16 @@ import org.junit.jupiter.api.Test;
 class SeatLayoutStrategyTest {
 
   private final SeatLayoutStrategyRegistry layouts = new SeatLayoutStrategyRegistry(
-      List.of(new GridSeatLayoutStrategy(), new RowSeatLayoutStrategy()));
+      List.of(new GridSeatLayoutStrategy(), new RowSeatLayoutStrategy(), new GeneralAdmissionLayoutStrategy()));
+
+  @Test
+  void generalAdmissionRequiresPositiveCapacityAndGeneratesNoPhysicalSeats() {
+    assertEquals(0, layouts.resolve("GENERAL_ADMISSION").generate("venue-1",
+        new SeatLayoutRules("GENERAL_ADMISSION", "", null, null, null, null, List.of(), 25)).size());
+    assertThrows(IllegalArgumentException.class, () -> layouts.resolve("GENERAL_ADMISSION")
+        .generate("venue-1", new SeatLayoutRules("GENERAL_ADMISSION", "", null, null, null, null,
+            List.of(), 0)));
+  }
 
   @Test
   void gridLayoutGeneratesExpectedSeatCountAndCoordinates() {

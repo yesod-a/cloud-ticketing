@@ -6,15 +6,23 @@ import com.cloudticket.auth.service.AuthService;
 import com.cloudticket.common.security.RequireInternalToken;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
+import java.io.IOException;
+import java.time.Instant;
 import java.util.UUID;
+import org.springframework.core.io.ByteArrayResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -93,13 +101,73 @@ public class AuthController {
     }
   }
 
+  @RequireInternalToken
+  @PatchMapping("/me")
+  public ResponseEntity<AuthDtos.ApiResponse<AuthDtos.UserView>> updateProfile(
+      @Valid @RequestBody AuthDtos.ProfileUpdateRequest request,
+      @RequestHeader(value = "X-User-Id", required = false) String trustedUserId,
+      HttpServletRequest http) {
+    UUID userId = userId(trustedUserId, null);
+    return ResponseEntity.ok(new AuthDtos.ApiResponse<>("OK", "profile updated", trace(http),
+        view(auth.updateNickname(userId, request.nickname()))));
+  }
+
+  @RequireInternalToken
+  @PostMapping(value = "/me/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+  public ResponseEntity<AuthDtos.ApiResponse<AuthDtos.UserView>> uploadAvatar(
+      @RequestPart("file") MultipartFile file,
+      @RequestHeader(value = "X-User-Id", required = false) String trustedUserId,
+      HttpServletRequest http) {
+    UUID userId = userId(trustedUserId, null);
+    return ResponseEntity.ok(new AuthDtos.ApiResponse<>("OK", "avatar updated", trace(http),
+        view(auth.updateAvatar(userId, file))));
+  }
+
+  @RequireInternalToken
+  @PostMapping("/me/password")
+  public ResponseEntity<AuthDtos.ApiResponse<Void>> changePassword(
+      @Valid @RequestBody AuthDtos.PasswordChangeRequest request,
+      @RequestHeader(value = "X-User-Id", required = false) String trustedUserId,
+      HttpServletRequest http) {
+    UUID userId = userId(trustedUserId, null);
+    auth.changePassword(userId, request.currentPassword(), request.newPassword());
+    return ResponseEntity.ok(new AuthDtos.ApiResponse<>("OK", "password changed", trace(http), null));
+  }
+
+  @GetMapping("/avatars/{userId}")
+  public ResponseEntity<ByteArrayResource> avatar(@org.springframework.web.bind.annotation.PathVariable UUID userId)
+      throws IOException {
+    var stored = auth.openAvatar(userId).orElseThrow(AuthService.AvatarNotFoundException::new);
+    return ResponseEntity.ok()
+        .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
+        .contentType(MediaType.parseMediaType(stored.contentType()))
+        .body(new ByteArrayResource(stored.readBytes()));
+  }
+
   private static String trace(HttpServletRequest request) {
     String trace = request.getHeader("X-Trace-Id");
     return trace == null ? "" : trace;
   }
 
+  private static UUID userId(String trustedUserId, Authentication authentication) {
+    String value = trustedUserId;
+    if (value == null || value.isBlank()) value = authentication == null ? null : authentication.getName();
+    if (value == null || value.isBlank()) throw new AuthService.InvalidCredentialsException();
+    try {
+      return UUID.fromString(value);
+    } catch (IllegalArgumentException malformed) {
+      throw new AuthService.InvalidCredentialsException();
+    }
+  }
+
   private static AuthDtos.UserView view(AuthUserEntity user) {
+    String avatarUrl = null;
+    if (user.getAvatarFilename() != null && user.getId() != null) {
+      Instant version = user.getUpdatedAt() == null ? user.getCreatedAt() : user.getUpdatedAt();
+      avatarUrl = "/api/auth/avatars/" + user.getId()
+          + (version == null ? "" : "?v=" + version.toEpochMilli());
+    }
     return new AuthDtos.UserView(user.getId().toString(), user.getPhone(), user.getEmail(),
-        user.getNickname(), user.getStatus());
+        user.getNickname(), user.getStatus(), avatarUrl, user.getCreatedAt());
   }
 }

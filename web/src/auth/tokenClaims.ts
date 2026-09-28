@@ -1,5 +1,7 @@
 export type TokenClaims = { roles?: string[]; permissions?: string[]; scopes?: string[] }
 
+import { canAccessAdmin as canAccessAdminForNavigation } from './navigationPermissions'
+
 export function tokenClaims(token: string): TokenClaims {
   try {
     const encoded = token.split('.')[1]
@@ -11,5 +13,5 @@ export function tokenClaims(token: string): TokenClaims {
 }
 
 export function canAccessAdmin(claims: TokenClaims): boolean {
-  return claims.roles?.includes('SUPER_ADMIN') === true || (claims.permissions ?? []).some(permission => permission.includes(':'))
+  return canAccessAdminForNavigation(claims)
 }

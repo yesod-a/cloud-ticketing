@@ -2,6 +2,7 @@ package com.cloudticket.activity;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -19,6 +20,9 @@ import com.cloudticket.activity.domain.Session;
 import com.cloudticket.activity.service.ActivityService;
 import com.cloudticket.activity.service.SessionService;
 import com.cloudticket.activity.service.VenueService;
+import com.cloudticket.activity.image.ActivityImageService;
+import com.cloudticket.activity.persistence.entity.ActivityImageEntity;
+import org.springframework.mock.web.MockMultipartFile;
 import com.cloudticket.common.security.AuditEntry;
 import com.cloudticket.common.security.AuditSink;
 import com.cloudticket.common.security.CallerContext;
@@ -29,6 +33,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class ActivityAdminControllerTest {
 
@@ -38,12 +43,44 @@ class ActivityAdminControllerTest {
   private final ActivityService activities = mock(ActivityService.class);
   private final SessionService sessions = mock(SessionService.class);
   private final VenueService venues = mock(VenueService.class);
+  private final ActivityImageService images = mock(ActivityImageService.class);
   private final AuditSink auditSink = mock(AuditSink.class);
   private final ActivitySnapshots snapshots = new ActivitySnapshots(activities, venues);
 
   private ActivityAdminController controller() {
-    return TestAspects.authorized(new ActivityAdminController(activities, sessions), auditSink,
+    return TestAspects.authorized(new ActivityAdminController(activities, sessions, images), auditSink,
         Map.of("activitySnapshots", snapshots));
+  }
+
+  @Test
+  void imageUploadAuditsTheCreatedImage() {
+    ActivityImageEntity image = new ActivityImageEntity();
+    image.setId("image-1");
+    image.setActivityId("activity-1");
+    image.setImageType("DETAIL");
+    when(images.upload(anyString(), org.mockito.ArgumentMatchers.any(), anyString())).thenReturn(image);
+
+    asCaller("activity:write", "ACTIVITY:activity-1", () -> controller().uploadImage("activity-1",
+        new MockMultipartFile("file", "detail.png", "image/png", new byte[] { 1 }), "DETAIL"));
+
+    ArgumentCaptor<AuditEntry> audit = ArgumentCaptor.forClass(AuditEntry.class);
+    verify(auditSink).record(audit.capture());
+    assertEquals("ACTIVITY_IMAGE_UPLOADED", audit.getValue().action());
+    assertEquals("activity-1", audit.getValue().resourceId());
+    assertTrue(audit.getValue().after().contains("image-1"));
+  }
+
+  @Test
+  void imageDeleteAndReorderEmitAuditActions() {
+    asCaller("activity:write", "ACTIVITY:activity-1",
+        () -> controller().deleteImage("activity-1", "image-1"));
+    asCaller("activity:write", "ACTIVITY:activity-1",
+        () -> controller().reorderImages("activity-1", Map.of("imageIds", List.of("image-1"))));
+
+    verify(auditSink).record(new AuditEntry("actor-1", "ACTIVITY_IMAGE_DELETED", "ACTIVITY", "activity-1",
+        null, null, "trace-1"));
+    verify(auditSink).record(new AuditEntry("actor-1", "ACTIVITY_IMAGE_REORDERED", "ACTIVITY", "activity-1",
+        null, "[image-1]", "trace-1"));
   }
 
   @Test

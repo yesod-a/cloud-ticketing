@@ -39,7 +39,13 @@ public class SessionService {
   }
 
   public List<Session> listOnSale(String activityId) {
-    return sessions.listOnSale(activityId);
+    return sessions.listOnSale(activityId).stream().map(session -> {
+      if (!"GENERAL_ADMISSION".equalsIgnoreCase(session.layoutMode())) return session;
+      int remaining = inventoryClient == null ? session.capacity()
+          : inventoryClient.remainingAdmission(session.id(), session.capacity());
+      return new Session(session.id(), session.activityId(), session.startsAt(), session.endsAt(), session.venue(),
+          session.status(), session.priceMinor(), session.layoutMode(), session.capacity(), session.purchaseLimit(), remaining);
+    }).toList();
   }
 
   public PageResult<Session> adminSessions(String activityId, String status, int page, int size,
@@ -59,20 +65,44 @@ public class SessionService {
    */
   public Session create(String activityId, String venueId, String startsAt, String endsAt, String status,
                         int priceMinor) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, "GRID", 0, 0);
+  }
+
+  public Session create(String activityId, String venueId, String startsAt, String endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit) {
     Session created = Objects.requireNonNull(transactions.execute(ignored -> {
       Session session = sessions.create(activityId, venueId, Instant.parse(startsAt), Instant.parse(endsAt),
-          status, priceMinor);
-      sessionSeats.copyFromVenue(session.id(), venueId);
+          status, priceMinor, layoutMode, capacity, purchaseLimit);
+      if (!"GENERAL_ADMISSION".equalsIgnoreCase(session.layoutMode())) {
+        sessionSeats.copyFromVenue(session.id(), venueId);
+      }
       activities.refreshStatus(activityId);
       return session;
     }));
-    provisionInventory(created.id(), activityId);
+    provisionInventory(created.id(), activityId, created.layoutMode(), created.capacity());
     return sessions.require(created.id());
   }
 
   public Session update(String sessionId, String startsAt, String endsAt, String status, int priceMinor) {
-    Session updated = sessions.update(sessionId, Instant.parse(startsAt), Instant.parse(endsAt), status, priceMinor);
+    Session current = sessions.require(sessionId);
+    Session updated = update(sessionId, startsAt, endsAt, status, priceMinor, current.layoutMode(), current.capacity(),
+        current.purchaseLimit());
+    return updated;
+  }
+
+  public Session update(String sessionId, String startsAt, String endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit) {
+    Session before = sessions.require(sessionId);
+    Session updated = sessions.update(sessionId, Instant.parse(startsAt), Instant.parse(endsAt), status, priceMinor,
+        layoutMode, capacity, purchaseLimit);
+    if (!"GENERAL_ADMISSION".equalsIgnoreCase(before.layoutMode())
+        && "GENERAL_ADMISSION".equalsIgnoreCase(updated.layoutMode())) {
+      sessionSeats.deleteBySession(sessionId);
+    }
     activities.refreshStatus(updated.activityId());
+    if ("GENERAL_ADMISSION".equalsIgnoreCase(updated.layoutMode())) {
+      provisionInventory(updated.id(), updated.activityId(), updated.layoutMode(), updated.capacity());
+    }
     return sessions.require(sessionId);
   }
 
@@ -120,8 +150,12 @@ public class SessionService {
     activities.refreshStatus(activityId);
   }
 
-  private void provisionInventory(String sessionId, String activityId) {
+  private void provisionInventory(String sessionId, String activityId, String layoutMode, int capacity) {
     if (inventoryClient == null) return;
+    if ("GENERAL_ADMISSION".equalsIgnoreCase(layoutMode)) {
+      inventoryClient.provisionAdmission(sessionId, capacity);
+      return;
+    }
     List<Map<String, Object>> seats = sessionSeats.snapshots(sessionId).stream()
         .map(seat -> Map.<String, Object>of(
             "id", seat.id(), "rowLabel", seat.rowLabel(), "seatNumber", seat.seatNumber(),

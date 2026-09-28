@@ -15,6 +15,7 @@ public class ActivityEntity {
   private String id;
   private String title;
   private String organizer;
+  private String description;
   private String status;
   private Boolean layoutFrozen;
 
@@ -27,6 +28,8 @@ public class ActivityEntity {
   public void setTitle(String title) { this.title = title; }
   public String getOrganizer() { return organizer; }
   public void setOrganizer(String organizer) { this.organizer = organizer; }
+  public String getDescription() { return description; }
+  public void setDescription(String description) { this.description = description; }
   public String getStatus() { return status; }
   public void setStatus(String status) { this.status = status; }
   public Boolean getLayoutFrozen() { return layoutFrozen; }

@@ -23,4 +23,8 @@ public interface AuthRefreshTokenMapper extends BaseMapper<AuthRefreshTokenEntit
   @Update("UPDATE auth_refresh_token SET revoked_at = #{revokedAt} WHERE family_id = #{familyId} "
       + "AND revoked_at IS NULL")
   int revokeFamily(@Param("familyId") UUID familyId, @Param("revokedAt") Instant revokedAt);
+
+  @Update("UPDATE auth_refresh_token SET revoked_at = #{revokedAt} WHERE user_id = #{userId} "
+      + "AND revoked_at IS NULL")
+  int revokeAllForUser(@Param("userId") UUID userId, @Param("revokedAt") Instant revokedAt);
 }

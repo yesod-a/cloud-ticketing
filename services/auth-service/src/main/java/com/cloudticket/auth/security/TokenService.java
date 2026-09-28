@@ -100,6 +100,10 @@ public class TokenService {
     if (token != null) refreshTokens.revoke(token.getId(), Instant.now());
   }
 
+  public void revokeAllForUser(UUID userId) {
+    refreshTokens.revokeAllForUser(userId, Instant.now());
+  }
+
   public static Optional<AccessClaims> parseAccessToken(String raw) {
     try {
       String[] parts = raw.split("\\.");

@@ -28,3 +28,11 @@ cloudticket:
     enabled: ${PUBLIC_READ_CACHE_ENABLED:true}
     local-ttl-ms: ${PUBLIC_READ_CACHE_LOCAL_TTL_MS:3000}
     redis-ttl-ms: ${PUBLIC_READ_CACHE_REDIS_TTL_MS:30000}
+  minio:
+    endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+    access-key: ${MINIO_ACCESS_KEY:minioadmin}
+    secret-key: ${MINIO_SECRET_KEY:minioadmin123}
+    bucket: ${MINIO_BUCKET:cloudticket-activity}
+    url-expiry-seconds: ${MINIO_URL_EXPIRY_SECONDS:900}
+    public-endpoint: ${MINIO_PUBLIC_ENDPOINT:}
+  activity-image-cleanup-ms: ${ACTIVITY_IMAGE_CLEANUP_MS:60000}

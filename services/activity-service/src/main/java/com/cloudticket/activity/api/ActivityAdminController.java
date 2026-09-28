@@ -7,12 +7,15 @@ import com.cloudticket.activity.domain.Seat;
 import com.cloudticket.activity.domain.Session;
 import com.cloudticket.activity.service.ActivityService;
 import com.cloudticket.activity.service.SessionService;
+import com.cloudticket.activity.image.ActivityImageService;
+import com.cloudticket.activity.persistence.entity.ActivityImageEntity;
 import com.cloudticket.common.security.AuditAction;
 import com.cloudticket.common.security.CallerContext;
 import com.cloudticket.common.security.CallerContextHolder;
 import com.cloudticket.common.security.RequirePermission;
 import com.cloudticket.common.security.RequireScope;
 import com.cloudticket.common.web.ApiResponse;
+import java.util.List;
 import java.util.Map;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -22,6 +25,9 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -36,10 +42,17 @@ public class ActivityAdminController {
 
   private final ActivityService activities;
   private final SessionService sessions;
+  private final ActivityImageService images;
 
   public ActivityAdminController(ActivityService activities, SessionService sessions) {
+    this(activities, sessions, null);
+  }
+
+  @Autowired
+  public ActivityAdminController(ActivityService activities, SessionService sessions, ActivityImageService images) {
     this.activities = activities;
     this.sessions = sessions;
+    this.images = images;
   }
 
   @RequirePermission({"activity:read", "activity:write", "activity:publish"})
@@ -84,7 +97,9 @@ public class ActivityAdminController {
   @AuditAction(action = "ACTIVITY_CREATED", resourceType = "ACTIVITY", resourceId = "#result.id()")
   @PostMapping
   public Activity create(@RequestBody ActivityCommands.CreateActivity body) {
-    return activities.create(body.title(), body.organizer());
+    return body.description() == null || body.description().isBlank()
+        ? activities.create(body.title(), body.organizer())
+        : activities.create(body.title(), body.organizer(), body.description());
   }
 
   @RequirePermission("activity:write")
@@ -93,7 +108,9 @@ public class ActivityAdminController {
       before = "@activitySnapshots.activity(#id)")
   @PutMapping("/{id}")
   public Activity update(@PathVariable("id") String id, @RequestBody ActivityCommands.UpdateActivity body) {
-    return activities.update(id, body.title(), body.organizer());
+    return body.description() == null || body.description().isBlank()
+        ? activities.update(id, body.title(), body.organizer())
+        : activities.update(id, body.title(), body.organizer(), body.description());
   }
 
   @RequirePermission("session:write")
@@ -101,8 +118,12 @@ public class ActivityAdminController {
   @AuditAction(action = "SESSION_CREATED", resourceType = "SESSION", resourceId = "#result.id()")
   @PostMapping("/{id}/sessions")
   public Session createSession(@PathVariable("id") String id, @RequestBody SessionCommands.CreateSession body) {
+    if (body.layoutMode() == null && body.capacity() == null && body.purchaseLimit() == null) {
+      return sessions.create(id, body.venueId(), body.startsAt(), body.endsAt(), body.statusOrDefault(),
+          body.priceOrZero());
+    }
     return sessions.create(id, body.venueId(), body.startsAt(), body.endsAt(), body.statusOrDefault(),
-        body.priceOrZero());
+        body.priceOrZero(), body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero());
   }
 
   @RequirePermission("session:write")
@@ -112,7 +133,11 @@ public class ActivityAdminController {
   public Session updateSession(@PathVariable("activityId") String activityId,
                                @PathVariable("sessionId") String sessionId,
                                @RequestBody SessionCommands.UpdateSession body) {
-    return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero());
+    if (body.layoutMode() == null && body.capacity() == null && body.purchaseLimit() == null) {
+      return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero());
+    }
+    return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero(),
+        body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero());
   }
 
   @RequirePermission({"session:write", "activity:publish"})
@@ -188,5 +213,47 @@ public class ActivityAdminController {
   @PostMapping("/{id}/layout/freeze")
   public Activity freeze(@PathVariable("id") String id) {
     return activities.freezeLayout(id);
+  }
+
+  @RequirePermission("activity:write")
+  @RequireScope(type = "ACTIVITY", id = "#id")
+  @AuditAction(action = "ACTIVITY_IMAGE_UPLOADED", resourceType = "ACTIVITY", resourceId = "#id")
+  @PostMapping(value = "/{id}/images", consumes = "multipart/form-data")
+  public Map<String, Object> uploadImage(@PathVariable("id") String id,
+      @RequestPart("file") MultipartFile file,
+      @RequestParam(name = "imageType", defaultValue = "DETAIL") String imageType) {
+    ActivityImageEntity image = images.upload(id, file, imageType);
+    return ActivityImageViews.view(image, images);
+  }
+
+  @RequirePermission("activity:write")
+  @RequireScope(type = "ACTIVITY", id = "#id")
+  @AuditAction(action = "ACTIVITY_IMAGE_DELETED", resourceType = "ACTIVITY", resourceId = "#id",
+      before = "", after = "")
+  @DeleteMapping("/{id}/images/{imageId}")
+  public Map<String, Object> deleteImage(@PathVariable("id") String id, @PathVariable("imageId") String imageId) {
+    images.delete(id, imageId);
+    return ApiResponse.code("OK");
+  }
+
+  @RequirePermission("activity:write")
+  @RequireScope(type = "ACTIVITY", id = "#id")
+  @AuditAction(action = "ACTIVITY_IMAGE_COVER_SET", resourceType = "ACTIVITY", resourceId = "#id")
+  @PutMapping("/{id}/images/{imageId}/cover")
+  public Map<String, Object> setCover(@PathVariable("id") String id,
+      @PathVariable("imageId") String imageId) {
+    ActivityImageEntity image = images.setCover(id, imageId);
+    return ActivityImageViews.view(image, images);
+  }
+
+  @RequirePermission("activity:write")
+  @RequireScope(type = "ACTIVITY", id = "#id")
+  @AuditAction(action = "ACTIVITY_IMAGE_REORDERED", resourceType = "ACTIVITY", resourceId = "#id",
+      before = "", after = "#body['imageIds']")
+  @PutMapping("/{id}/images/order")
+  public Map<String, Object> reorderImages(@PathVariable("id") String id,
+      @RequestBody Map<String, List<String>> body) {
+    images.reorder(id, body == null ? List.of() : body.getOrDefault("imageIds", List.of()));
+    return ApiResponse.code("OK");
   }
 }

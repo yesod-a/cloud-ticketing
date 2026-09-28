@@ -26,11 +26,16 @@ public class ActivityRepository {
   }
 
   public Activity create(String title, String organizer) {
+    return create(title, organizer, "");
+  }
+
+  public Activity create(String title, String organizer, String description) {
     String cleanTitle = requireTitle(title);
     ActivityEntity entity = new ActivityEntity();
     entity.setId(UUID.randomUUID().toString());
     entity.setTitle(cleanTitle);
     entity.setOrganizer(Text.orEmpty(organizer));
+    entity.setDescription(Text.orEmpty(description));
     entity.setStatus(OFFLINE);
     entity.setLayoutFrozen(false);
     activities.insert(entity);
@@ -38,12 +43,17 @@ public class ActivityRepository {
   }
 
   public Activity update(String id, String title, String organizer) {
+    return update(id, title, organizer, "");
+  }
+
+  public Activity update(String id, String title, String organizer, String description) {
     ActivityEntity current = requireEntity(id);
     if (Boolean.TRUE.equals(current.getLayoutFrozen())) throw new IllegalStateException("layout is frozen");
     String cleanTitle = requireTitle(title);
     activities.update(null, Wrappers.<ActivityEntity>lambdaUpdate()
         .set(ActivityEntity::getTitle, cleanTitle)
         .set(ActivityEntity::getOrganizer, Text.orEmpty(organizer))
+        .set(ActivityEntity::getDescription, Text.orEmpty(description))
         .eq(ActivityEntity::getId, id));
     return toDomain(activities.selectById(id));
   }
@@ -146,8 +156,8 @@ public class ActivityRepository {
   }
 
   private static Activity toDomain(ActivityEntity entity) {
-    return new Activity(entity.getId(), entity.getTitle(), entity.getOrganizer(), entity.getStatus(),
-        Boolean.TRUE.equals(entity.getLayoutFrozen()));
+    return new Activity(entity.getId(), entity.getTitle(), entity.getOrganizer(), entity.getDescription(),
+        entity.getStatus(), Boolean.TRUE.equals(entity.getLayoutFrozen()));
   }
 
   private static String requireTitle(String title) {

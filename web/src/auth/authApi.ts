@@ -6,3 +6,9 @@ export async function api<T>(url:string, init:RequestInit={}, retried=false):Pro
 export const login=(identifier:string,password:string)=>api<{accessToken:string;refreshToken:string}>('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({identifier,password})}).then(v=>{session.set(v.accessToken,v.refreshToken);return v})
 export const register=async(identifier:string,password:string,nickname?:string)=>{const value=identifier.trim();const payload={phone:value.includes('@')?null:value,email:value.includes('@')?value:null,password,nickname:nickname?.trim()||null};await api<{id:string}>('/api/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});return login(value,password)}
 export const logout=async()=>{const refreshToken=session.refreshToken();const accessToken=session.token();try{if(refreshToken)await api<void>('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({refreshToken,accessToken})})}finally{session.clear()}}
+
+export type UserProfile={id:string;phone:string|null;email:string|null;nickname:string|null;status:string;avatarUrl:string|null;createdAt:string|null}
+export const getProfile=()=>api<UserProfile>('/api/auth/me')
+export const updateProfile=(nickname:string)=>api<UserProfile>('/api/auth/me',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({nickname:nickname.trim()})})
+export const uploadAvatar=async(file:File)=>{const form=new FormData();form.append('file',file);return api<UserProfile>('/api/auth/me/avatar',{method:'POST',body:form})}
+export const changePassword=async(currentPassword:string,newPassword:string)=>{await api<void>('/api/auth/me/password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({currentPassword,newPassword})});session.clear()}

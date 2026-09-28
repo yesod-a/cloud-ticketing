@@ -34,13 +34,59 @@ public class OrderRepository {
   private final InventoryReservationClient inventory;
   private final ActivitySessionClient sessions;
   private final OutboxEventWriter outbox;
+  private final UserSessionPurchaseRepository purchases;
 
   public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
                          ActivitySessionClient sessions, OutboxEventWriter outbox) {
+    this(orders, inventory, sessions, outbox, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
+                         ActivitySessionClient sessions, OutboxEventWriter outbox,
+                         UserSessionPurchaseRepository purchases) {
     this.orders = orders;
     this.inventory = inventory;
     this.sessions = sessions;
     this.outbox = outbox;
+    this.purchases = purchases;
+  }
+
+  @Transactional
+  public TicketOrderEntity createGeneralAdmission(String userId, String sessionId, int quantity, String idempotencyKey) {
+    requireText(userId, "userId"); requireText(sessionId, "sessionId"); requireText(idempotencyKey, "idempotencyKey");
+    if (quantity < 1) throw new IllegalArgumentException("quantity must be positive");
+    String key = idempotencyKey.trim();
+    String requestHash = requestHash(userId, sessionId, quantity);
+    Optional<TicketOrderEntity> previous = findByIdempotencyKey(key);
+    if (previous.isPresent()) return replay(previous.get(), requestHash);
+    ActivitySessionClient.SessionInfo info = sessions.session(sessionId);
+    requireOnSale(info);
+    if (!"GENERAL_ADMISSION".equalsIgnoreCase(info.layoutMode())) throw new IllegalArgumentException("quantity only applies to general admission");
+    String id = UUID.randomUUID().toString();
+    TicketOrderEntity order = new TicketOrderEntity();
+    order.setId(id); order.setUserId(userId); order.setSessionId(sessionId); order.setSeatIds("");
+    order.setQuantity(quantity); order.setTicketNumbers("");
+    order.setIdempotencyKey(key); order.setRequestHash(requestHash); order.setStatus("PENDING");
+    order.setAmountMinor(info.priceMinor() * quantity);
+    try {
+      // Claim the unique idempotency key before any quota or inventory side effects. A concurrent
+      // replay therefore observes the winner instead of racing into a purchase-limit conflict.
+      orders.insert(order);
+    } catch (DuplicateKeyException concurrentDuplicate) {
+      return findByIdempotencyKey(key).map(existing -> replay(existing, requestHash)).orElseThrow(() -> concurrentDuplicate);
+    }
+    try {
+      if (purchases != null) purchases.reserve(id, userId, sessionId, quantity, info.purchaseLimit(), 900);
+      List<Long> numbers = inventory.reserveQuantity(id, userId, sessionId, quantity);
+      order.setTicketNumbers(numbers.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining(",")));
+      orders.updateById(order);
+      TicketOrderEntity created = orders.selectById(id);
+      outbox.write(EventTypes.ORDER_CREATED, id, new OrderCreatedPayload(created.getId(), created.getUserId(), created.getSessionId(), created.getSeatIds(), created.getStatus(), created.getAmountMinor(), created.getCreatedAt()));
+      return created;
+    } catch (RuntimeException failure) {
+      inventory.releaseQuantity(id); if (purchases != null) purchases.release(id, userId, sessionId, quantity); throw failure;
+    }
   }
 
   @Transactional
@@ -55,7 +101,12 @@ public class OrderRepository {
     Optional<TicketOrderEntity> previous = findByIdempotencyKey(key);
     if (previous.isPresent()) return replay(previous.get(), requestHash);
 
-    int unitPriceMinor = sessions == null ? 0 : sessions.priceMinor(sessionId);
+    int unitPriceMinor = 0;
+    if (sessions != null) {
+      ActivitySessionClient.SessionInfo info = sessions.session(sessionId);
+      requireOnSale(info);
+      unitPriceMinor = info.priceMinor();
+    }
     String id = UUID.randomUUID().toString();
     if (inventory != null) inventory.reserve(id, sessionId, requestedSeats);
 
@@ -85,11 +136,21 @@ public class OrderRepository {
     return created;
   }
 
+  private static void requireOnSale(ActivitySessionClient.SessionInfo info) {
+    if (info == null || !"ONSALE".equalsIgnoreCase(info.status())) {
+      throw new IllegalStateException("session is not on sale");
+    }
+  }
+
   /** Same idempotency key and same request is a replay; a different request is a conflict. */
   private TicketOrderEntity replay(TicketOrderEntity previous, String requestHash) {
     String storedHash = previous.getRequestHash();
     if (storedHash == null || storedHash.isBlank()) {
-      storedHash = requestHash(previous.getUserId(), previous.getSessionId(), SeatIds.parse(previous.getSeatIds()));
+      if (previous.getQuantity() != null && previous.getQuantity() > 0) {
+        storedHash = requestHash(previous.getUserId(), previous.getSessionId(), previous.getQuantity());
+      } else {
+        storedHash = requestHash(previous.getUserId(), previous.getSessionId(), SeatIds.parse(previous.getSeatIds()));
+      }
     }
     if (!requestHash.equals(storedHash)) throw new IdempotencyConflictException();
     return previous;
@@ -135,8 +196,9 @@ public class OrderRepository {
 
   @Transactional
   public TicketOrderEntity cancel(String id) {
+    TicketOrderEntity pending = orders.selectById(id);
     if (orders.cancelIfCancellable(id) == 0) throw new IllegalStateException("order cannot be cancelled");
-    if (inventory != null) inventory.release(id);
+    releaseReservation(pending);
     TicketOrderEntity cancelled = orders.selectById(id);
     outbox.write(EventTypes.ORDER_CANCELLED, id, new OrderCancelledPayload(id, cancelled.getStatus()));
     return cancelled;
@@ -145,13 +207,32 @@ public class OrderRepository {
   /** Conditional transition used by the refund review flow; returns whether this call won. */
   @Transactional
   public boolean markRefunded(String orderId, String refundId, String reviewer) {
+    TicketOrderEntity paid = orders.selectById(orderId);
     boolean transitioned = orders.markRefundedIfPaid(orderId) > 0;
     if (transitioned) {
       outbox.write(EventTypes.ORDER_REFUNDED, orderId,
           new OrderRefundedPayload(orderId, refundId, reviewer, "REFUNDED"));
     }
-    if (inventory != null) inventory.release(orderId);
+    if (transitioned) releaseReservation(paid);
     return transitioned;
+  }
+
+  public void releaseReservation(TicketOrderEntity order) {
+    if (order == null) return;
+    boolean generalAdmission = order.getQuantity() != null && order.getQuantity() > 0;
+    if (generalAdmission) {
+      if (inventory != null) {
+        if ("PAID".equals(order.getStatus())) inventory.releaseRefunded(order.getId());
+        else inventory.releaseQuantity(order.getId());
+      }
+      if (purchases != null) {
+        int quantity = order.getQuantity();
+        if ("PAID".equals(order.getStatus())) purchases.decrement(order.getId(), order.getUserId(), order.getSessionId(), quantity);
+        else purchases.release(order.getId(), order.getUserId(), order.getSessionId(), quantity);
+      }
+      return;
+    }
+    if (inventory != null) inventory.release(order.getId());
   }
 
   /** Orders that are still pending after the payment window; used by the expiry scanner. */
@@ -174,6 +255,10 @@ public class OrderRepository {
     } catch (NoSuchAlgorithmException impossible) {
       throw new IllegalStateException("SHA-256 unavailable", impossible);
     }
+  }
+
+  private static String requestHash(String userId, String sessionId, int quantity) {
+    return requestHash(userId, sessionId, List.of("QTY:" + quantity));
   }
 
   private static String trimmed(String value) {

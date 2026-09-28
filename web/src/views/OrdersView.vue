@@ -14,13 +14,13 @@ onMounted(load)
     <p v-if="error" class="alert">{{error}}</p>
     <p v-if="loading">正在加载订单...</p>
     <table v-else class="admin-table">
-      <thead><tr><th>订单号</th><th>场次</th><th>座位</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>订单号</th><th>场次</th><th>座位/票号</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="row in rows" :key="row.id">
-          <td>{{row.id}}</td><td>{{row.sessionId}}</td><td>{{row.seatIds}}</td><td>¥{{yuan(row.amountMinor)}}</td><td>{{row.status}}</td>
+          <td>{{row.id}}</td><td>{{row.sessionId}}</td><td>{{ row.quantity ? `${row.quantity} 张（${row.ticketNumbers || '待出票'}）` : row.seatIds }}</td><td>¥{{yuan(row.amountMinor)}}</td><td>{{row.status}}</td>
           <td>
             <button v-if="row.status==='PENDING'" class="icon-btn" @click="emit('pay',row.id)">去支付</button>
-            <button v-if="['PENDING','PAID'].includes(row.status)" class="icon-btn" @click="cancel(row.id)">取消</button>
+            <button v-if="row.status==='PENDING'" class="icon-btn" @click="cancel(row.id)">取消</button>
             <button v-if="row.status==='PAID'" class="icon-btn" @click="refund(row.id)">申请退款</button>
           </td>
         </tr>

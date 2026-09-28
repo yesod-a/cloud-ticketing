@@ -34,6 +34,15 @@ public interface AuthUserMapper extends BaseMapper<AuthUserEntity> {
   @Select("SELECT * FROM auth_user WHERE phone = #{identifier} OR email = #{identifier} LIMIT 1")
   AuthUserEntity findByIdentifier(@Param("identifier") String identifier);
 
+  @Select("SELECT * FROM auth_user WHERE id = #{id}")
+  AuthUserEntity selectProfile(@Param("id") UUID id);
+
+  @Update("UPDATE auth_user SET nickname = #{nickname} WHERE id = #{id}")
+  int updateNickname(@Param("id") UUID id, @Param("nickname") String nickname);
+
+  @Update("UPDATE auth_user SET avatar_filename = #{filename} WHERE id = #{id}")
+  int updateAvatarFilename(@Param("id") UUID id, @Param("filename") String filename);
+
   @Select("SELECT COUNT(*) FROM auth_user WHERE phone = #{phone}")
   int countByPhone(@Param("phone") String phone);
 

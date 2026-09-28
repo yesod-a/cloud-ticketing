@@ -58,6 +58,25 @@ captured from the same environment.
 - Compose now injects `KAFKA_BOOTSTRAP_SERVERS=kafka:9092` and exposes the four migration flags;
   defaults remain Bitmap on, Lua lock/events/reconciliation off.
 
-No DB-only versus Bitmap/Lua load-test pair has been collected yet: `JMETER_HOME` is not configured
-on this machine and the running services had to be rebuilt first. The table in
-`jmeter/RESULTS-seat-bitmap.md` therefore remains `TBD`; no latency or QPS improvement is reported.
+## JMeter seat-read comparison (2026-09-27)
+
+The JMeter executable was found at `D:\Apache\apache-jmeter-5.6.3`. After fixing the JMX to read
+the base URL from a JMeter property and making the runner remove stale JTL files, identical
+100-thread/60-second runs were collected for the same five-seat session:
+
+| Mode | Samples | QPS | p50 | p95 | p99 | Errors |
+|---|---:|---:|---:|---:|---:|---:|
+| DB-only | 633,039 | 10,680.6 | 8 ms | 16 ms | 23 ms | 0% |
+| Bitmap cold/miss | 210,320 | 3,555.0 | 28 ms | 53 ms | 65 ms | 0% |
+| Bitmap hot/ready | 212,495 | 3,578.9 | 28 ms | 53 ms | 62 ms | 0% |
+
+Raw runs and MySQL/Redis/container snapshots are under `jmeter/results/seat-read-*`. The current
+Bitmap implementation still performs the MySQL metadata query for every public seat request and
+then overlays status bits, so MySQL SELECT volume stayed approximately one per request. The
+measured hot Bitmap path was about 66.5% lower throughput than DB-only; no Redis hit-rate metric is
+claimed because the application has no hit counter yet. This is a valid negative benchmark, not a
+production improvement claim.
+
+The next migration step is to project immutable seat metadata (or a packed metadata+status payload)
+into Redis and measure again with a real hit counter. The current status-only Bitmap remains useful
+for lock decisions and reconciliation, but it is not a faster full seat-map read path by itself.

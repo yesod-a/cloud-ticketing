@@ -64,6 +64,16 @@ class ActivityRepositoryTest {
   }
 
   @Test
+  void createAndUpdatePreserveDescription() {
+    ActivityEntity created = entity("activity-1", "OFFLINE", false);
+    created.setDescription("  A detailed event description  ");
+    when(mapper.selectById(any())).thenReturn(created);
+
+    assertEquals("  A detailed event description  ", repository.create("A", "Org", "  A detailed event description  ").description());
+    assertEquals("  A detailed event description  ", repository.update("activity-1", "A", "Org", "  A detailed event description  ").description());
+  }
+
+  @Test
   void unknownActivityIsNotFound() {
     assertThrows(java.util.NoSuchElementException.class, () -> repository.require("missing"));
   }
@@ -75,6 +85,7 @@ class ActivityRepositoryTest {
     entity.setOrganizer("Org");
     entity.setStatus(status);
     entity.setLayoutFrozen(frozen);
+    entity.setDescription("");
     return entity;
   }
 }

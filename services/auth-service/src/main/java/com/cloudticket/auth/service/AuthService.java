@@ -3,6 +3,7 @@ package com.cloudticket.auth.service;
 import com.cloudticket.auth.persistence.entity.AuthUserEntity;
 import com.cloudticket.auth.persistence.mapper.AuthRevokedAccessTokenMapper;
 import com.cloudticket.auth.persistence.mapper.AuthUserMapper;
+import com.cloudticket.auth.profile.AvatarStorage;
 import com.cloudticket.auth.security.PasswordPolicy;
 import com.cloudticket.auth.security.TokenService;
 import java.time.Duration;
@@ -11,6 +12,7 @@ import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -27,19 +29,26 @@ public class AuthService {
   private final PasswordEncoder encoder;
   private final TokenService tokens;
   private final AuthRevokedAccessTokenMapper revokedTokens;
+  private final AvatarStorage avatars;
   private final ConcurrentHashMap<String, UUID> resetTokens = new ConcurrentHashMap<>();
 
   public AuthService(AuthUserMapper users, PasswordEncoder encoder, TokenService tokens) {
-    this(users, encoder, tokens, null);
+    this(users, encoder, tokens, null, null);
+  }
+
+  public AuthService(AuthUserMapper users, PasswordEncoder encoder, TokenService tokens,
+                     AuthRevokedAccessTokenMapper revokedTokens) {
+    this(users, encoder, tokens, revokedTokens, null);
   }
 
   @Autowired
   public AuthService(AuthUserMapper users, PasswordEncoder encoder, TokenService tokens,
-                     AuthRevokedAccessTokenMapper revokedTokens) {
+                     AuthRevokedAccessTokenMapper revokedTokens, AvatarStorage avatars) {
     this.users = users;
     this.encoder = encoder;
     this.tokens = tokens;
     this.revokedTokens = revokedTokens;
+    this.avatars = avatars;
   }
 
   public AuthUserEntity register(String phone, String email, String password, String nickname) {
@@ -128,11 +137,60 @@ public class AuthService {
     AuthUserEntity user = Optional.ofNullable(users.selectById(id))
         .orElseThrow(InvalidCredentialsException::new);
     users.resetPassword(user.getId(), encoder.encode(password));
+    tokens.revokeAllForUser(user.getId());
     return users.selectById(user.getId());
   }
 
   public AuthUserEntity me(UUID userId) {
     return Optional.ofNullable(users.selectById(userId)).orElseThrow(InvalidCredentialsException::new);
+  }
+
+  public AuthUserEntity updateNickname(UUID userId, String nickname) {
+    AuthUserEntity user = me(userId);
+    String clean = nickname == null ? null : nickname.trim();
+    if (clean != null && clean.length() > 120) {
+      throw new IllegalArgumentException("Nickname must be at most 120 characters");
+    }
+    if (clean != null && clean.isEmpty()) clean = null;
+    users.updateNickname(userId, clean);
+    user.setNickname(clean);
+    return profile(userId, user);
+  }
+
+  public void changePassword(UUID userId, String currentPassword, String newPassword) {
+    AuthUserEntity user = me(userId);
+    if (!encoder.matches(currentPassword, user.getPasswordHash())) {
+      throw new InvalidCredentialsException();
+    }
+    PasswordPolicy.requireValid(newPassword);
+    users.resetPassword(userId, encoder.encode(newPassword));
+    tokens.revokeAllForUser(userId);
+  }
+
+  public AuthUserEntity updateAvatar(UUID userId, MultipartFile file) {
+    AuthUserEntity user = me(userId);
+    if (avatars == null) throw new IllegalStateException("Avatar storage is unavailable");
+    AvatarStorage.extension(file);
+    String previous = user.getAvatarFilename();
+    String filename = avatars.save(userId, file);
+    if (users.updateAvatarFilename(userId, filename) != 1) {
+      avatars.delete(filename);
+      throw new IllegalStateException("Could not update avatar");
+    }
+    if (previous != null && !previous.equals(filename)) avatars.delete(previous);
+    user.setAvatarFilename(filename);
+    return profile(userId, user);
+  }
+
+  public Optional<AvatarStorage.StoredAvatar> openAvatar(UUID userId) {
+    AuthUserEntity user = users.selectById(userId);
+    if (user == null) return Optional.empty();
+    if (avatars == null || user.getAvatarFilename() == null) return Optional.empty();
+    return avatars.open(user.getAvatarFilename());
+  }
+
+  private AuthUserEntity profile(UUID userId, AuthUserEntity fallback) {
+    return Optional.ofNullable(users.selectProfile(userId)).orElse(fallback);
   }
 
   public static String normalizeEmail(String email) {
@@ -152,4 +210,6 @@ public class AuthService {
   public static class DuplicateCredentialException extends RuntimeException {}
 
   public static class InvalidCredentialsException extends RuntimeException {}
+
+  public static class AvatarNotFoundException extends RuntimeException {}
 }

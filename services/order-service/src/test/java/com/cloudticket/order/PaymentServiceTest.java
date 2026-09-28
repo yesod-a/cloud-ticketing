@@ -18,6 +18,7 @@ import com.cloudticket.order.payment.PaymentChannelRegistry;
 import com.cloudticket.order.payment.UnionPayPaymentChannel;
 import com.cloudticket.order.payment.WeChatPaymentChannel;
 import com.cloudticket.order.persistence.PaymentRepository;
+import com.cloudticket.order.persistence.UserSessionPurchaseRepository;
 import com.cloudticket.order.persistence.entity.PaymentEntity;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import java.time.Instant;
@@ -30,6 +31,7 @@ class PaymentServiceTest {
 
   private final PaymentRepository store = mock(PaymentRepository.class);
   private final InventoryReservationClient inventory = mock(InventoryReservationClient.class);
+  private final UserSessionPurchaseRepository purchases = mock(UserSessionPurchaseRepository.class);
   private final QrCodeGenerator qr = mock(QrCodeGenerator.class);
   private final PaymentChannelRegistry channels = new PaymentChannelRegistry(
       List.of(new WeChatPaymentChannel(), new AlipayPaymentChannel(), new UnionPayPaymentChannel()),
@@ -37,7 +39,7 @@ class PaymentServiceTest {
 
   private PaymentService service() {
     when(qr.toDataUrl(anyString())).thenReturn("data:image/png;base64,AAA");
-    return new PaymentService(store, inventory, qr, channels, 15);
+    return new PaymentService(store, inventory, purchases, qr, channels, 15);
   }
 
   @Test
@@ -96,6 +98,23 @@ class PaymentServiceTest {
   }
 
   @Test
+  void payConfirmsGeneralAdmissionInventoryAndPurchase() {
+    TicketOrderEntity order = order("PENDING");
+    order.setSeatIds("");
+    order.setQuantity(2);
+    order.setTicketNumbers("101,102");
+    when(store.findOrder("order-1")).thenReturn(Optional.of(order));
+    when(store.findPaymentByOrder("order-1")).thenReturn(Optional.of(payment("PENDING", "WECHAT")));
+    when(store.markPaid(eq("order-1"), eq("payment-1"), anyString())).thenReturn(payment("SUCCESS", "WECHAT"));
+
+    service().pay("order-1", "user-1");
+
+    verify(inventory).confirmQuantity("order-1");
+    verify(purchases).activate("order-1", "user-1", "session-1", 2);
+    verify(inventory, never()).confirm("order-1");
+  }
+
+  @Test
   void payIsIdempotentWhenPaymentAlreadySucceeded() {
     when(store.findOrder("order-1")).thenReturn(Optional.of(order("PAID")));
     when(store.findPaymentByOrder("order-1")).thenReturn(Optional.of(payment("SUCCESS", "WECHAT")));
@@ -104,7 +123,7 @@ class PaymentServiceTest {
 
     assertEquals("SUCCESS", result.get("status"));
     verify(store, never()).markPaid(anyString(), anyString(), anyString());
-    verify(inventory, never()).confirm(anyString());
+    verify(inventory).confirm("order-1");
   }
 
   @Test
