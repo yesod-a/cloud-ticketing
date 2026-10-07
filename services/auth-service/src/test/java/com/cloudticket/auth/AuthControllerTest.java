@@ -17,6 +17,7 @@ import com.cloudticket.common.security.CallerContext;
 import com.cloudticket.common.security.CallerContextHolder;
 import jakarta.validation.Validation;
 import java.util.UUID;
+import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.annotation.Configuration;
@@ -105,6 +106,24 @@ class AuthControllerTest {
 
     assertEquals("/api/auth/avatars/" + userId, response.getBody().data().avatarUrl());
     verify(auth).updateNickname(userId, "Updated");
+  }
+
+  @Test
+  void publicProfilesReturnOnlyNicknameAndAvatarForValidUniqueIds() {
+    AuthService auth = mock(AuthService.class);
+    UUID userId = UUID.randomUUID();
+    AuthUserEntity user = new AuthUserEntity();
+    user.setId(userId);
+    user.setNickname("观众");
+    user.setAvatarFilename("avatar.png");
+    when(auth.publicProfiles(List.of(userId))).thenReturn(List.of(user));
+    AuthController controller = new AuthController(auth);
+
+    var response = controller.publicProfiles(userId + ",not-a-uuid," + userId, new MockHttpServletRequest());
+
+    assertEquals("观众", response.getBody().data().get(0).nickname());
+    assertEquals("/api/auth/avatars/" + userId, response.getBody().data().get(0).avatarUrl());
+    verify(auth).publicProfiles(List.of(userId));
   }
 
   @Test

@@ -93,6 +93,13 @@ public class VenueRepository {
     venues.refreshCapacity(venueId);
   }
 
+  public void setCapacity(String venueId, int capacity) {
+    if (capacity < 0) throw new IllegalArgumentException("capacity must be non-negative");
+    venues.update(null, Wrappers.<VenueEntity>lambdaUpdate()
+        .set(VenueEntity::getCapacity, capacity)
+        .eq(VenueEntity::getId, venueId));
+  }
+
   private static Venue toDomain(VenueEntity entity) {
     return new Venue(entity.getId(), entity.getActivityId(), entity.getName(), entity.getAddress(),
         entity.getCapacity() == null ? 0 : entity.getCapacity());

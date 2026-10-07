@@ -4,6 +4,7 @@ import com.cloudticket.common.domain.SeatIds;
 import com.cloudticket.inventory.persistence.InventoryLockRepository;
 import com.cloudticket.inventory.persistence.InventorySeatRepository;
 import com.cloudticket.inventory.cache.SeatBitmapProjection;
+import com.cloudticket.inventory.cache.InventoryLayoutProjection;
 import com.cloudticket.inventory.redis.RedisSeatLockService;
 import java.time.Instant;
 import java.util.List;
@@ -30,23 +31,31 @@ public class InventoryReservationService {
   private final InventoryLockRepository locks;
   private final SeatBitmapProjection projection;
   private final RedisSeatLockService redisLocks;
+  private final InventoryLayoutProjection layoutProjection;
 
   public InventoryReservationService(InventorySeatRepository seats, InventoryLockRepository locks) {
-    this(seats, locks, null, null);
+    this(seats, locks, null, null, null);
   }
 
   public InventoryReservationService(InventorySeatRepository seats, InventoryLockRepository locks,
                                      SeatBitmapProjection projection) {
-    this(seats, locks, projection, null);
+    this(seats, locks, projection, null, null);
+  }
+
+  public InventoryReservationService(InventorySeatRepository seats, InventoryLockRepository locks,
+                                     SeatBitmapProjection projection, RedisSeatLockService redisLocks) {
+    this(seats, locks, projection, redisLocks, null);
   }
 
   @org.springframework.beans.factory.annotation.Autowired
   public InventoryReservationService(InventorySeatRepository seats, InventoryLockRepository locks,
-                                     SeatBitmapProjection projection, RedisSeatLockService redisLocks) {
+                                     SeatBitmapProjection projection, RedisSeatLockService redisLocks,
+                                     InventoryLayoutProjection layoutProjection) {
     this.seats = seats;
     this.locks = locks;
     this.projection = projection;
     this.redisLocks = redisLocks;
+    this.layoutProjection = layoutProjection;
   }
 
   public static List<String> normalizeSeatIds(List<String> seatIds) {
@@ -67,7 +76,7 @@ public class InventoryReservationService {
     }
     boolean redisHeld = false;
     Map<String, Integer> seatIndexes = Map.of();
-    if (redisLocks != null && redisLocks.isEnabled()) {
+    if (redisLocks != null && redisLocks.isEnabled() && redisLocks.isReady(sessionId)) {
       seatIndexes = seats.indexes(sessionId, seatIds);
       if (seatIndexes.size() != seatIds.size()) throw new SeatsUnavailableException();
       redisHeld = redisLocks.reserveIndexed(orderId, sessionId, seatIds.stream().map(seatIndexes::get).toList(), ttlSeconds);
@@ -79,7 +88,7 @@ public class InventoryReservationService {
       long ttl = Math.max(1, Math.min(ttlSeconds, MAX_TTL_SECONDS));
       Instant expiresAt = Instant.now().plusSeconds(ttl);
       seatIds.forEach(seatId -> locks.hold(orderId, sessionId, seatId, expiresAt));
-      if (projection != null) projection.invalidate(sessionId);
+      invalidate(List.of(sessionId));
       return new Reservation(orderId, sessionId, seatIds, expiresAt);
     } catch (RuntimeException failure) {
       if (redisHeld) {
@@ -127,6 +136,7 @@ public class InventoryReservationService {
 
   private void invalidate(List<String> sessions) {
     if (projection != null) sessions.forEach(projection::invalidate);
+    if (layoutProjection != null) sessions.forEach(layoutProjection::invalidate);
   }
 
   @Scheduled(fixedDelayString = "${cloudticket.inventory-expiry-scan-ms:30000}")

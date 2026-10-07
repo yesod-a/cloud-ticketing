@@ -37,11 +37,7 @@ public class InventorySeatRepository {
 
   /** @return how many of the requested seats were still available and are now locked */
   public int lock(String sessionId, List<String> seatIds) {
-    return seats.update(null, Wrappers.<InventorySeatEntity>lambdaUpdate()
-        .set(InventorySeatEntity::getStatus, LOCKED)
-        .eq(InventorySeatEntity::getSessionId, sessionId)
-        .in(InventorySeatEntity::getId, seatIds)
-        .eq(InventorySeatEntity::getStatus, AVAILABLE));
+    return seats.lockBatch(sessionId, seatIds);
   }
 
   /** @return how many locked seats were returned to the pool */
@@ -90,6 +86,11 @@ public class InventorySeatRepository {
         .stream()
         .filter(seat -> seat.getSeatIndex() != null)
         .collect(Collectors.toMap(InventorySeatEntity::getId, InventorySeatEntity::getSeatIndex));
+  }
+
+  public List<String> idsByIndexes(String sessionId, List<Integer> indexes) {
+    if (indexes == null || indexes.isEmpty()) return List.of();
+    return seats.idsByIndexes(sessionId, indexes);
   }
 
   public List<String> sessionIds() { return seats.selectSessionIds(); }

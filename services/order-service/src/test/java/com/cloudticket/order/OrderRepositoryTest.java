@@ -19,9 +19,11 @@ import com.cloudticket.order.persistence.OrderRepository;
 import com.cloudticket.order.persistence.UserSessionPurchaseRepository;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import com.cloudticket.order.persistence.mapper.TicketOrderMapper;
+import com.cloudticket.order.timeout.OrderTimeoutOutboxWriter;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 
 class OrderRepositoryTest {
 
@@ -29,6 +31,7 @@ class OrderRepositoryTest {
   private final InventoryReservationClient inventory = mock(InventoryReservationClient.class);
   private final ActivitySessionClient sessions = mock(ActivitySessionClient.class);
   private final OutboxEventWriter outbox = mock(OutboxEventWriter.class);
+  private final OrderTimeoutOutboxWriter timeoutOutbox = mock(OrderTimeoutOutboxWriter.class);
   private final UserSessionPurchaseRepository purchases = mock(UserSessionPurchaseRepository.class);
   private final OrderRepository repository = new OrderRepository(orders, inventory, sessions, outbox);
 
@@ -53,7 +56,8 @@ class OrderRepositoryTest {
     when(sessions.session("session-1")).thenReturn(new ActivitySessionClient.SessionInfo("GRID", 19_900, 0, "DRAFT"));
 
     assertThrows(IllegalStateException.class, () -> repository.create("user-1", "session-1", "A1", "idem-draft"));
-    verify(inventory, never()).reserve(anyString(), anyString(), any());
+    verify(inventory).reserve(anyString(), eq("session-1"), eq(List.of("A1")));
+    verify(inventory).release(anyString());
   }
 
   @Test
@@ -79,6 +83,7 @@ class OrderRepositoryTest {
     TicketOrderEntity[] persisted = new TicketOrderEntity[1];
     when(orders.insert(any(TicketOrderEntity.class))).thenAnswer(invocation -> {
       persisted[0] = invocation.getArgument(0);
+      persisted[0].setCreatedAt(java.time.Instant.now());
       return 1;
     });
     when(orders.selectById(anyString())).thenAnswer(invocation -> persisted[0]);
@@ -88,8 +93,28 @@ class OrderRepositoryTest {
     assertEquals(39_800, result.getAmountMinor());
     assertEquals("A1,A2", result.getSeatIds());
     assertEquals("PENDING", result.getStatus());
+    assertEquals(15 * 60, java.time.Duration.between(result.getCreatedAt(), result.getExpireAt()).getSeconds(), 1);
     verify(inventory).reserve(eq(result.getId()), eq("session-1"), eq(List.of("A1", "A2")));
     verify(outbox).write(eq(EventTypes.ORDER_CREATED), eq(result.getId()), any());
+  }
+
+  @Test
+  void createReservesRedisInventoryBeforeLoadingActivitySession() {
+    when(orders.selectOne(any())).thenReturn(null);
+    when(sessions.session("session-1"))
+        .thenReturn(new ActivitySessionClient.SessionInfo("GRID", 19_900, 0, "ONSALE"));
+    TicketOrderEntity[] persisted = new TicketOrderEntity[1];
+    when(orders.insert(any(TicketOrderEntity.class))).thenAnswer(invocation -> {
+      persisted[0] = invocation.getArgument(0);
+      return 1;
+    });
+    when(orders.selectById(anyString())).thenAnswer(invocation -> persisted[0]);
+
+    repository.create("user-1", "session-1", "A1", "idem-order-first");
+
+    InOrder order = org.mockito.Mockito.inOrder(inventory, sessions);
+    order.verify(inventory).reserve(anyString(), eq("session-1"), eq(List.of("A1")));
+    order.verify(sessions).session("session-1");
   }
 
   @Test

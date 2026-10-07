@@ -53,6 +53,21 @@ public class InventoryReservationClient {
     internal.post(baseUrl, "/api/internal/inventory/locks/{orderId}/confirm", null, orderId);
   }
 
+  public Map<String, Object> reserveQueued(String reservationId, String userId, String sessionId,
+                                           String mode, List<String> seatIds, int quantity, int capacity,
+                                           String idempotencyKey) {
+    return internal.postForBody(baseUrl, "/api/internal/inventory/queued/reservations",
+        Map.of("reservationId", reservationId, "userId", userId, "sessionId", sessionId,
+            "mode", mode, "seatIds", seatIds == null ? List.of() : seatIds,
+            "quantity", quantity, "capacity", capacity, "idempotencyKey", idempotencyKey,
+            "ttlSeconds", 900), new ParameterizedTypeReference<>() {});
+  }
+
+  public Map<String, Object> queuedStatus(String reservationId, String sessionId) {
+    return internal.get(baseUrl, "/api/internal/inventory/queued/reservations/{reservationId}?sessionId={sessionId}",
+        new ParameterizedTypeReference<>() {}, reservationId, sessionId);
+  }
+
   @ResponseStatus(HttpStatus.CONFLICT)
   public static final class SeatUnavailableException extends RuntimeException {
     public SeatUnavailableException() { super("one or more seats are unavailable"); }

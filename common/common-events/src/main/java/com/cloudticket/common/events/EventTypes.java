@@ -10,4 +10,10 @@ public final class EventTypes {
     public static final String PAYMENT_FAILED = "PaymentFailed";
     public static final String INVENTORY_LOCKED = "InventoryLocked";
     public static final String INVENTORY_RELEASED = "InventoryReleased";
+    public static final String INVENTORY_HELD = "InventoryHeld";
+    public static final String RESERVE_TICKET_COMMAND = "ReserveTicketCommand";
+    public static final String COUPON_CONSUMED = "CouponConsumed";
+    public static final String COUPON_RELEASED = "CouponReleased";
+    public static final String COUPON_RESTORED = "CouponRestored";
+    public static final String COMMENT_LIKE_COUNT_CHANGED = "CommentLikeCountChanged";
 }

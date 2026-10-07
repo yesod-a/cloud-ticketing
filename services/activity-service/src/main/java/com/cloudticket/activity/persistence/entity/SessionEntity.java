@@ -20,6 +20,8 @@ public class SessionEntity {
   private String layoutMode;
   private Integer capacity;
   private Integer purchaseLimit;
+  private String saleMode;
+  private Instant saleStartAt;
 
   public String getId() { return id; }
   public void setId(String id) { this.id = id; }
@@ -41,4 +43,8 @@ public class SessionEntity {
   public void setCapacity(Integer capacity) { this.capacity = capacity; }
   public Integer getPurchaseLimit() { return purchaseLimit; }
   public void setPurchaseLimit(Integer purchaseLimit) { this.purchaseLimit = purchaseLimit; }
+  public String getSaleMode() { return saleMode; }
+  public void setSaleMode(String saleMode) { this.saleMode = saleMode; }
+  public Instant getSaleStartAt() { return saleStartAt; }
+  public void setSaleStartAt(Instant saleStartAt) { this.saleStartAt = saleStartAt; }
 }

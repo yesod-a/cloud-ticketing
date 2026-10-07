@@ -1,0 +1,27 @@
+server:
+  port: "${PROMOTION_SERVER_PORT:8084}"
+spring:
+  application:
+    name: promotion-service
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+  datasource:
+    url: ${PROMOTION_DB_URL:jdbc:mysql://localhost:3309/promotion_db?useSSL=false&serverTimezone=UTC}
+    username: ${PROMOTION_DB_USERNAME:root}
+    password: ${PROMOTION_DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+cloudticket:
+  internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+  promotion:
+    quote-timeout-minutes: ${PROMOTION_QUOTE_TIMEOUT_MINUTES:15}

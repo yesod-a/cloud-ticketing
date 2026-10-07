@@ -6,8 +6,12 @@ import java.util.List;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
 import org.apache.ibatis.annotations.Update;
+import org.apache.ibatis.annotations.Insert;
 
 public interface InventoryLockMapper extends BaseMapper<InventoryLockEntity> {
+
+  @Insert("<script>INSERT INTO inventory_lock(id,order_id,session_id,seat_id,active,status,expires_at) VALUES <foreach collection='locks' item='lock' separator=','>(#{lock.id},#{lock.orderId},#{lock.sessionId},#{lock.seatId},#{lock.active},#{lock.status},#{lock.expiresAt})</foreach></script>")
+  int insertBatch(@Param("locks") List<InventoryLockEntity> locks);
 
   @Select("SELECT DISTINCT order_id FROM inventory_lock WHERE active = 1 AND expires_at <= CURRENT_TIMESTAMP")
   List<String> selectExpiredOrderIds();

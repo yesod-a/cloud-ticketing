@@ -1,0 +1,3 @@
+package com.cloudticket.comment.persistence.mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper; import com.cloudticket.comment.persistence.entity.CommentLikeEntity; import org.apache.ibatis.annotations.Delete; import org.apache.ibatis.annotations.Param; import org.apache.ibatis.annotations.Select;
+public interface CommentLikeMapper extends BaseMapper<CommentLikeEntity> { @Select("SELECT COUNT(*) FROM comment_like_record WHERE comment_id=#{commentId} AND user_id=#{userId}") int exists(@Param("commentId") String commentId,@Param("userId") String userId); @Delete("DELETE FROM comment_like_record WHERE comment_id=#{commentId} AND user_id=#{userId}") int deleteOne(@Param("commentId") String commentId,@Param("userId") String userId); }

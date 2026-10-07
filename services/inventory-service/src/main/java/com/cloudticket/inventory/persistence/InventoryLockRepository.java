@@ -56,6 +56,17 @@ public class InventoryLockRepository {
     locks.insert(lock);
   }
 
+  public void holdBatch(String orderId, String sessionId, List<String> seatIds, Instant expiresAt) {
+    if (seatIds == null || seatIds.isEmpty()) return;
+    List<InventoryLockEntity> rows = seatIds.stream().map(seatId -> {
+      InventoryLockEntity lock = new InventoryLockEntity();
+      lock.setId(UUID.randomUUID().toString()); lock.setOrderId(orderId); lock.setSessionId(sessionId);
+      lock.setSeatId(seatId); lock.setActive(ACTIVE); lock.setStatus(ACTIVE_STATUS); lock.setExpiresAt(expiresAt);
+      return lock;
+    }).toList();
+    locks.insertBatch(rows);
+  }
+
   /** @return how many active locks were retired */
   public int retireActive(String orderId, String status) {
     return locks.retireActive(orderId, status);

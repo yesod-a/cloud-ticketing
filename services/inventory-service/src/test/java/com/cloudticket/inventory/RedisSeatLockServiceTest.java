@@ -29,6 +29,7 @@ class RedisSeatLockServiceTest {
 
     verify(redis).execute(any(RedisScript.class),
         org.mockito.ArgumentMatchers.eq(List.of(
+            "cloudticket:inventory:{session-1}:ready",
             "cloudticket:inventory:{session-1}:sold",
             "cloudticket:inventory:{session-1}:locked",
             "cloudticket:inventory:{session-1}:disabled",
@@ -71,7 +72,7 @@ class RedisSeatLockServiceTest {
     assertFalse(new RedisSeatLockService(redis, true)
         .reserveIndexed("order-1", "session-1", List.of(3), 60));
     verify(redis).execute(any(RedisScript.class),
-        org.mockito.ArgumentMatchers.argThat(keys -> keys.get(0).endsWith(":sold")),
+        org.mockito.ArgumentMatchers.argThat(keys -> keys.get(1).endsWith(":sold")),
         any(Object[].class));
   }
 }

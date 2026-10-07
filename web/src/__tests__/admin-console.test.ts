@@ -69,4 +69,28 @@ describe('admin console', () => {
     expect(wrapper.find('.modal-card.wide').exists()).toBe(true)
     expect(wrapper.find('.session-table-wrap').exists()).toBe(true)
   })
+
+  it('configures a capacity-only venue layout without rendering seat rows', async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [{ id: 'venue-1', name: '开放场', address: '', capacity: 20 }], total: 1 } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { items: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [] }), { status: 200 }))
+
+    const wrapper = mount(AdminLayout, { props: { permissions: ['venue:read', 'seat-layout:write'] } })
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === '座位布局')!.trigger('click')
+
+    const layoutMode = wrapper.get('[data-testid="venue-layout-mode"]')
+    expect(layoutMode.find('option[value="GENERAL_ADMISSION"]').exists()).toBe(true)
+    await layoutMode.setValue('GENERAL_ADMISSION')
+    expect(wrapper.find('[data-testid="venue-capacity"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="venue-capacity"]').setValue(100)
+    await wrapper.get('.layout-form').trigger('submit')
+    await flushPromises()
+
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[2][1]?.body))).toMatchObject({ mode: 'GENERAL_ADMISSION', capacity: 100 })
+    expect(wrapper.find('.seat-preview-row').exists()).toBe(false)
+    expect(wrapper.text()).toContain('100 个票号')
+    expect(wrapper.find('table').text()).toContain('100')
+  })
 })

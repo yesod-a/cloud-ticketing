@@ -2,6 +2,9 @@ package com.cloudticket.inventory.event;
 
 import com.cloudticket.common.events.EventTypes;
 import com.cloudticket.inventory.persistence.ProcessedInventoryEventRepository;
+import com.cloudticket.inventory.persistence.InventoryReservationRepository;
+import com.cloudticket.inventory.redis.QueuedAdmissionReservationService;
+import com.cloudticket.inventory.redis.QueuedSeatReservationService;
 import com.cloudticket.inventory.service.InventoryReservationService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -23,12 +26,27 @@ public class InventoryEventConsumer {
   private final InventoryReservationService reservations;
   private final ProcessedInventoryEventRepository events;
   private final ObjectMapper json;
+  private final InventoryReservationRepository queuedRecords;
+  private final QueuedSeatReservationService queuedSeats;
+  private final QueuedAdmissionReservationService queuedAdmission;
 
   public InventoryEventConsumer(InventoryReservationService reservations,
                                 ProcessedInventoryEventRepository events, ObjectMapper json) {
+    this(reservations, events, json, null, null, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public InventoryEventConsumer(InventoryReservationService reservations,
+                                ProcessedInventoryEventRepository events, ObjectMapper json,
+                                InventoryReservationRepository queuedRecords,
+                                QueuedSeatReservationService queuedSeats,
+                                QueuedAdmissionReservationService queuedAdmission) {
     this.reservations = reservations;
     this.events = events;
     this.json = json;
+    this.queuedRecords = queuedRecords;
+    this.queuedSeats = queuedSeats;
+    this.queuedAdmission = queuedAdmission;
   }
 
   @KafkaListener(topics = "${cloudticket.inventory.events.topic:order-events}",
@@ -55,8 +73,30 @@ public class InventoryEventConsumer {
     String traceId = text(envelope, "traceId");
     if (!events.tryClaim(eventId, eventType, orderId, traceId)) return;
 
-    if (EventTypes.PAYMENT_SUCCEEDED.equals(eventType)) reservations.confirm(orderId);
-    else reservations.release(orderId);
+    var queued = queuedRecords == null ? java.util.Optional.<com.cloudticket.inventory.persistence.entity.InventoryReservationEntity>empty()
+        : queuedRecords.find(orderId);
+    if (EventTypes.PAYMENT_SUCCEEDED.equals(eventType)) {
+      reservations.confirm(orderId);
+      queued.ifPresent(row -> confirmQueued(row));
+    } else {
+      reservations.release(orderId);
+      queued.ifPresent(row -> releaseQueued(row));
+    }
+  }
+
+  private void confirmQueued(com.cloudticket.inventory.persistence.entity.InventoryReservationEntity row) {
+    if ("GENERAL_ADMISSION".equals(row.getMode())) queuedAdmission.confirm(row.getReservationId(), row.getSessionId(), row.getQuantity() == null ? 0 : row.getQuantity());
+    else queuedSeats.confirm(row.getReservationId(), row.getSessionId(), parseIndexes(row.getSeatIndexes()));
+  }
+
+  private void releaseQueued(com.cloudticket.inventory.persistence.entity.InventoryReservationEntity row) {
+    if ("GENERAL_ADMISSION".equals(row.getMode())) queuedAdmission.release(row.getReservationId(), row.getSessionId(), row.getQuantity() == null ? 0 : row.getQuantity());
+    else queuedSeats.release(row.getReservationId(), row.getSessionId(), parseIndexes(row.getSeatIndexes()));
+  }
+
+  private static java.util.List<Integer> parseIndexes(String value) {
+    if (value == null || value.isBlank()) return java.util.List.of();
+    return java.util.Arrays.stream(value.split(",")).filter(v -> !v.isBlank()).map(Integer::parseInt).toList();
   }
 
   private static boolean supported(String eventType) {

@@ -131,6 +131,7 @@ class InventoryReservationServiceTest {
   void redisHoldIsCompensatedWhenMysqlCannotLockEverySeat() {
     RedisSeatLockService redisLocks = mock(RedisSeatLockService.class);
     when(redisLocks.isEnabled()).thenReturn(true);
+    when(redisLocks.isReady("session-1")).thenReturn(true);
     when(locks.activeSeatIds("order-1")).thenReturn(List.of());
     when(seats.indexes("session-1", List.of("seat-1", "seat-2")))
         .thenReturn(java.util.Map.of("seat-1", 1, "seat-2", 2));
@@ -148,6 +149,7 @@ class InventoryReservationServiceTest {
   void redisConflictRejectsBeforeTouchingMysql() {
     RedisSeatLockService redisLocks = mock(RedisSeatLockService.class);
     when(redisLocks.isEnabled()).thenReturn(true);
+    when(redisLocks.isReady("session-1")).thenReturn(true);
     when(locks.activeSeatIds("order-1")).thenReturn(List.of());
     when(seats.indexes("session-1", List.of("seat-1")))
         .thenReturn(java.util.Map.of("seat-1", 1));

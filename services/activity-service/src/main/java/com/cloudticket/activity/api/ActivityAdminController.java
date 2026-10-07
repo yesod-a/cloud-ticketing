@@ -123,7 +123,8 @@ public class ActivityAdminController {
           body.priceOrZero());
     }
     return sessions.create(id, body.venueId(), body.startsAt(), body.endsAt(), body.statusOrDefault(),
-        body.priceOrZero(), body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero());
+        body.priceOrZero(), body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero(),
+        body.saleModeOrDefault(), body.saleStartAt());
   }
 
   @RequirePermission("session:write")
@@ -134,10 +135,12 @@ public class ActivityAdminController {
                                @PathVariable("sessionId") String sessionId,
                                @RequestBody SessionCommands.UpdateSession body) {
     if (body.layoutMode() == null && body.capacity() == null && body.purchaseLimit() == null) {
-      return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero());
+      return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero(),
+          "GRID", 0, 0, body.saleModeOrDefault(), body.saleStartAt());
     }
     return sessions.update(sessionId, body.startsAt(), body.endsAt(), body.statusOrDefault(), body.priceOrZero(),
-        body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero());
+        body.layoutModeOrDefault(), body.capacityOrZero(), body.purchaseLimitOrZero(), body.saleModeOrDefault(),
+        body.saleStartAt());
   }
 
   @RequirePermission({"session:write", "activity:publish"})

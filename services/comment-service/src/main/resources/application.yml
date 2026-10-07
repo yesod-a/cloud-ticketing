@@ -1,0 +1,18 @@
+server:
+  port: "${COMMENT_SERVER_PORT:8085}"
+spring:
+  application.name: comment-service
+  cloud.nacos.discovery.server-addr: ${NACOS_SERVER_ADDR:localhost:8848}
+  datasource:
+    url: ${COMMENT_DB_URL:jdbc:mysql://localhost:3310/comment_db?useSSL=false&serverTimezone=UTC}
+    username: ${COMMENT_DB_USERNAME:root}
+    password: ${COMMENT_DB_PASSWORD:root}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  flyway.enabled: true
+  flyway.locations: classpath:db/migration
+  data.redis.host: ${REDIS_HOST:localhost}
+  data.redis.port: ${REDIS_PORT:6379}
+  kafka.bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+cloudticket.internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+cloudticket.order-base-url: ${ORDER_BASE_URL:http://order-service:8083}
+cloudticket.comment.like-topic: ${COMMENT_LIKE_TOPIC:comment-events}

@@ -12,8 +12,10 @@ public class RouteConfiguration {
   @Bean RouteLocator cloudTicketRoutes(RouteLocatorBuilder routes) {
     return routes.routes().route("auth-service", r -> r.path("/api/auth/**", "/api/admin/auth/**").filters(f -> f.addRequestHeader("X-Internal-Service-Token", internalToken)).uri("lb://auth-service"))
       .route("inventory-public", r -> r.path("/api/sessions/*/seats").uri("lb://inventory-service"))
+      .route("comment-service", r -> r.path("/api/activities/*/comments", "/api/comments/**", "/api/admin/comments/**").uri("lb://comment-service"))
       .route("activity-service", r -> r.path("/api/activities/**", "/api/sessions/**", "/api/admin/activities/**", "/api/admin/venues/**", "/api/admin/sessions/**").uri("lb://activity-service"))
-      .route("order-service", r -> r.path("/api/orders/**", "/api/me/orders/**", "/api/admin/orders/**").uri("lb://order-service"))
+      .route("order-service", r -> r.path("/api/orders/**", "/api/queued-orders/**", "/api/me/orders/**", "/api/admin/orders/**").uri("lb://order-service"))
+      .route("promotion-service", r -> r.path("/api/promotions/**", "/api/admin/promotions/**").uri("lb://promotion-service"))
       .route("inventory-service", r -> r.path("/api/admin/inventory/**").filters(f -> f.addRequestHeader("X-Internal-Service-Token", internalToken)).uri("lb://inventory-service")).build();
   }
 }

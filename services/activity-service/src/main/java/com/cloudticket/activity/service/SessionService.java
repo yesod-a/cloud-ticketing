@@ -1,6 +1,7 @@
 package com.cloudticket.activity.service;
 
 import com.cloudticket.activity.client.InventorySeatProvisionClient;
+import com.cloudticket.activity.client.InventoryCacheWarmupClient;
 import com.cloudticket.activity.domain.Seat;
 import com.cloudticket.activity.domain.SeatLayout;
 import com.cloudticket.activity.domain.SeatSnapshot;
@@ -26,15 +27,24 @@ public class SessionService {
   private final SessionSeatRepository sessionSeats;
   private final ActivityRepository activities;
   private final InventorySeatProvisionClient inventoryClient;
+  private final InventoryCacheWarmupClient warmupClient;
   private final TransactionTemplate transactions;
 
   public SessionService(SessionRepository sessions, SessionSeatRepository sessionSeats,
                         ActivityRepository activities, InventorySeatProvisionClient inventoryClient,
                         TransactionTemplate transactions) {
+    this(sessions, sessionSeats, activities, inventoryClient, null, transactions);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public SessionService(SessionRepository sessions, SessionSeatRepository sessionSeats,
+                        ActivityRepository activities, InventorySeatProvisionClient inventoryClient,
+                        InventoryCacheWarmupClient warmupClient, TransactionTemplate transactions) {
     this.sessions = sessions;
     this.sessionSeats = sessionSeats;
     this.activities = activities;
     this.inventoryClient = inventoryClient;
+    this.warmupClient = warmupClient;
     this.transactions = transactions;
   }
 
@@ -44,7 +54,8 @@ public class SessionService {
       int remaining = inventoryClient == null ? session.capacity()
           : inventoryClient.remainingAdmission(session.id(), session.capacity());
       return new Session(session.id(), session.activityId(), session.startsAt(), session.endsAt(), session.venue(),
-          session.status(), session.priceMinor(), session.layoutMode(), session.capacity(), session.purchaseLimit(), remaining);
+          session.status(), session.priceMinor(), session.layoutMode(), session.capacity(), session.purchaseLimit(),
+          remaining, session.saleMode(), session.saleStartAt());
     }).toList();
   }
 
@@ -70,9 +81,22 @@ public class SessionService {
 
   public Session create(String activityId, String venueId, String startsAt, String endsAt, String status,
                         int priceMinor, String layoutMode, int capacity, int purchaseLimit) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, "DIRECT");
+  }
+
+  public Session create(String activityId, String venueId, String startsAt, String endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit, String saleMode) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit,
+        saleMode, null);
+  }
+
+  public Session create(String activityId, String venueId, String startsAt, String endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit, String saleMode,
+                        String saleStartAt) {
     Session created = Objects.requireNonNull(transactions.execute(ignored -> {
       Session session = sessions.create(activityId, venueId, Instant.parse(startsAt), Instant.parse(endsAt),
-          status, priceMinor, layoutMode, capacity, purchaseLimit);
+          status, priceMinor, layoutMode, capacity, purchaseLimit, saleMode,
+          saleStartAt == null || saleStartAt.isBlank() ? null : Instant.parse(saleStartAt));
       if (!"GENERAL_ADMISSION".equalsIgnoreCase(session.layoutMode())) {
         sessionSeats.copyFromVenue(session.id(), venueId);
       }
@@ -80,6 +104,7 @@ public class SessionService {
       return session;
     }));
     provisionInventory(created.id(), activityId, created.layoutMode(), created.capacity());
+    warmup(created);
     return sessions.require(created.id());
   }
 
@@ -92,9 +117,20 @@ public class SessionService {
 
   public Session update(String sessionId, String startsAt, String endsAt, String status, int priceMinor,
                         String layoutMode, int capacity, int purchaseLimit) {
+    return update(sessionId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, "DIRECT");
+  }
+
+  public Session update(String sessionId, String startsAt, String endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit, String saleMode) {
+    return update(sessionId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, saleMode, null);
+  }
+
+  public Session update(String sessionId, String startsAt, String endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit, String saleMode, String saleStartAt) {
     Session before = sessions.require(sessionId);
     Session updated = sessions.update(sessionId, Instant.parse(startsAt), Instant.parse(endsAt), status, priceMinor,
-        layoutMode, capacity, purchaseLimit);
+        layoutMode, capacity, purchaseLimit, saleMode,
+        saleStartAt == null || saleStartAt.isBlank() ? null : Instant.parse(saleStartAt));
     if (!"GENERAL_ADMISSION".equalsIgnoreCase(before.layoutMode())
         && "GENERAL_ADMISSION".equalsIgnoreCase(updated.layoutMode())) {
       sessionSeats.deleteBySession(sessionId);
@@ -103,11 +139,14 @@ public class SessionService {
     if ("GENERAL_ADMISSION".equalsIgnoreCase(updated.layoutMode())) {
       provisionInventory(updated.id(), updated.activityId(), updated.layoutMode(), updated.capacity());
     }
+    warmup(updated);
     return sessions.require(sessionId);
   }
 
   public Session publish(String sessionId) {
-    return sessions.publish(sessionId);
+    Session published = sessions.publish(sessionId);
+    warmup(published);
+    return published;
   }
 
   public Session offline(String sessionId) {
@@ -163,5 +202,9 @@ public class SessionService {
             "x", seat.x(), "y", seat.y(), "status", seat.status()))
         .toList();
     inventoryClient.provision(sessionId, activityId, seats);
+  }
+
+  private void warmup(Session session) {
+    if (warmupClient != null) warmupClient.upsert(session.id(), session.saleStartAt());
   }
 }

@@ -1,0 +1,3 @@
+package com.cloudticket.promotion.domain;
+import org.springframework.stereotype.Component;
+@Component("RATE") public class RateDiscount implements DiscountStrategy { public boolean canUse(int amount,Coupon c){return amount>=c.thresholdAmountMinor()&&c.discountValue()>0&&c.discountValue()<=10000;} public int calculateDiscount(int amount,Coupon c){int d=(int)Math.floor((long)amount*(10000-c.discountValue())/10000.0);return Math.min(amount,c.maxDiscountMinor()==null?Math.max(0,d):Math.min(Math.max(0,d),Math.max(0,c.maxDiscountMinor())));} public String describe(Coupon c){return "满"+c.thresholdAmountMinor()+"打"+(c.discountValue()/100.0)+"折";} }

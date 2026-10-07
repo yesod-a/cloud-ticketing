@@ -16,6 +16,7 @@ public final class AuthDtos {
    this(id, phone, email, nickname, status, null, null);
   }
  }
+ public record PublicProfileView(String id,String nickname,String avatarUrl){}
  public record ProfileUpdateRequest(@Size(max=120) String nickname){}
  public record PasswordChangeRequest(@NotBlank String currentPassword,
                                      @NotBlank @Size(min=8,max=128) String newPassword){}

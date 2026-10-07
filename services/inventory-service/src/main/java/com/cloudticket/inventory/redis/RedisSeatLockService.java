@@ -1,6 +1,7 @@
 package com.cloudticket.inventory.redis;
 
 import com.cloudticket.inventory.cache.SeatBitmapProjection;
+import com.cloudticket.inventory.cache.InventoryReadService;
 import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -26,14 +27,28 @@ public class RedisSeatLockService {
 
   private final StringRedisTemplate redis;
   private final boolean enabled;
+  private final InventoryReadService reads;
 
   public RedisSeatLockService(StringRedisTemplate redis,
                               @Value("${cloudticket.inventory.redis-lock.enabled:${cloudticket.redis-seat-lock.enabled:false}}") boolean enabled) {
+    this(redis, enabled, null);
+  }
+
+  @org.springframework.beans.factory.annotation.Autowired
+  public RedisSeatLockService(StringRedisTemplate redis,
+                              @Value("${cloudticket.inventory.redis-lock.enabled:${cloudticket.redis-seat-lock.enabled:true}}") boolean enabled,
+                              InventoryReadService reads) {
     this.redis = redis;
     this.enabled = enabled;
+    this.reads = reads;
   }
 
   public boolean isEnabled() { return enabled && redis != null; }
+
+  /** Redis seat gates are only safe when the complete projection is ready. */
+  public boolean isReady(String sessionId) {
+    return !isEnabled() || reads == null || reads.ensureReady(sessionId);
+  }
 
   /** Returns true when all requested holds were created, or when this optional path is disabled. */
   public boolean reserve(String orderId, String sessionId, List<String> seatIds, long ttlSeconds) {
@@ -44,8 +59,10 @@ public class RedisSeatLockService {
 
   public boolean reserveIndexed(String orderId, String sessionId, List<Integer> seatIndexes, long ttlSeconds) {
     if (!isEnabled()) return true;
+    if (!isReady(sessionId)) return false;
     List<String> keys = new java.util.ArrayList<>();
     String tag = SeatBitmapProjection.tag(sessionId);
+    keys.add(readyKey(tag));
     keys.add(bitmapKey(tag, "sold"));
     keys.add(bitmapKey(tag, "locked"));
     keys.add(bitmapKey(tag, "disabled"));
@@ -122,6 +139,7 @@ public class RedisSeatLockService {
   }
 
   private static String bitmapKey(String tag, String name) { return PREFIX + tag + ":" + name; }
+  private static String readyKey(String tag) { return PREFIX + tag + ":ready"; }
 
   private static RedisScript<Long> script(String path) {
     DefaultRedisScript<Long> script = new DefaultRedisScript<>();

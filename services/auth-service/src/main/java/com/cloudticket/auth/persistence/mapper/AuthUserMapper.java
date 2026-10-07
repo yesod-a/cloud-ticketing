@@ -37,6 +37,11 @@ public interface AuthUserMapper extends BaseMapper<AuthUserEntity> {
   @Select("SELECT * FROM auth_user WHERE id = #{id}")
   AuthUserEntity selectProfile(@Param("id") UUID id);
 
+  @Select("<script>SELECT id,nickname,avatar_filename,created_at,updated_at FROM auth_user "
+      + "WHERE status='ACTIVE' AND id IN "
+      + "<foreach collection='ids' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+  List<AuthUserEntity> selectPublicProfiles(@Param("ids") List<UUID> ids);
+
   @Update("UPDATE auth_user SET nickname = #{nickname} WHERE id = #{id}")
   int updateNickname(@Param("id") UUID id, @Param("nickname") String nickname);
 

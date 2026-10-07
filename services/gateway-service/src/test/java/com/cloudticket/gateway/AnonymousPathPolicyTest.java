@@ -12,10 +12,15 @@ class AnonymousPathPolicyTest {
     assertTrue(policy.allows("POST", "/api/auth/refresh"));
     assertFalse(policy.allows("GET", "/api/auth/me"));
     assertTrue(policy.allows("GET", "/api/auth/avatars/00000000-0000-0000-0000-000000000001"));
+    assertTrue(policy.allows("GET", "/api/auth/public-profiles"));
+    assertFalse(policy.allows("POST", "/api/auth/public-profiles"));
     assertFalse(policy.allows("POST", "/api/auth/me/password"));
     assertFalse(policy.allows("POST", "/api/auth/logout"));
     assertTrue(policy.allows("GET", "/api/activities"));
     assertTrue(policy.allows("GET", "/api/activities/abc"));
+    assertTrue(policy.allows("GET", "/api/activities/abc/comments"));
+    assertTrue(policy.allows("GET", "/api/comments/comment-1/replies"));
+    assertFalse(policy.allows("GET", "/api/comments/likes"));
     assertTrue(policy.allows("GET", "/api/sessions/abc/seats"));
     assertFalse(policy.allows("POST", "/api/orders"));
     assertFalse(policy.allows("GET", "/api/admin/activities"));

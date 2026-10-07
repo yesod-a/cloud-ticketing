@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { cancelOrder, myOrders, requestOrderRefund, type UserOrder } from '../adminApi'
 const emit=defineEmits<{back:[];pay:[orderId:string]}>(); const rows=ref<UserOrder[]>([]),page=ref(0),total=ref(0),loading=ref(false),error=ref('')
 const yuan=(minor:number)=>((minor??0)/100).toFixed(2)
+const statusLabel=(status:string)=>({PENDING:'待支付',PAID:'已支付',CANCELLED:'已取消',EXPIRED:'已过期',REFUNDING:'退款中',REFUNDED:'已退款'}[status]||status)
 async function load(){loading.value=true;error.value='';try{const result=await myOrders({page:page.value,size:10});rows.value=result.items;total.value=result.total}catch{error.value='订单加载失败，请稍后重试。'}finally{loading.value=false}}
 async function cancel(id:string){try{await cancelOrder(id);await load()}catch{error.value='订单当前状态不可取消。'}}
 async function refund(id:string){const reason=window.prompt('请输入退款原因');if(!reason?.trim())return;try{await requestOrderRefund(id,reason);await load()}catch{error.value='退款申请提交失败。'}}
@@ -17,8 +18,8 @@ onMounted(load)
       <thead><tr><th>订单号</th><th>场次</th><th>座位/票号</th><th>金额</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>
         <tr v-for="row in rows" :key="row.id">
-          <td>{{row.id}}</td><td>{{row.sessionId}}</td><td>{{ row.quantity ? `${row.quantity} 张（${row.ticketNumbers || '待出票'}）` : row.seatIds }}</td><td>¥{{yuan(row.amountMinor)}}</td><td>{{row.status}}</td>
-          <td>
+          <td data-label="订单号">{{row.id}}</td><td data-label="场次">{{row.sessionId}}</td><td data-label="座位/票号">{{ row.quantity ? `${row.quantity} 张（${row.ticketNumbers || '待出票'}）` : row.seatIds }}</td><td data-label="金额">¥{{yuan(row.amountMinor)}}</td><td data-label="状态"><span class="order-status" :class="`order-status-${row.status.toLowerCase()}`">{{statusLabel(row.status)}}</span></td>
+          <td data-label="操作">
             <button v-if="row.status==='PENDING'" class="icon-btn" @click="emit('pay',row.id)">去支付</button>
             <button v-if="row.status==='PENDING'" class="icon-btn" @click="cancel(row.id)">取消</button>
             <button v-if="row.status==='PAID'" class="icon-btn" @click="refund(row.id)">申请退款</button>

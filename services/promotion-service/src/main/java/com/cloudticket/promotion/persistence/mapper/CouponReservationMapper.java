@@ -1,0 +1,3 @@
+package com.cloudticket.promotion.persistence.mapper;
+import com.baomidou.mybatisplus.core.mapper.BaseMapper; import com.cloudticket.promotion.persistence.entity.CouponReservationEntity; import org.apache.ibatis.annotations.Select; import org.apache.ibatis.annotations.Update;
+public interface CouponReservationMapper extends BaseMapper<CouponReservationEntity> { @Select("SELECT * FROM promotion_coupon_reservation WHERE order_id=#{orderId}") CouponReservationEntity selectByOrder(String orderId); @Update("UPDATE promotion_coupon_reservation SET status=#{to} WHERE reservation_id=#{id} AND status=#{from}") int transition(String id,String from,String to); }

@@ -15,6 +15,7 @@ public class TicketOrderEntity {
   private String id;
   private String userId;
   private String sessionId;
+  private String activityId;
   private String seatIds;
   private Integer quantity;
   private String ticketNumbers;
@@ -22,6 +23,11 @@ public class TicketOrderEntity {
   private String requestHash;
   private String status;
   private Integer amountMinor;
+  private Integer originalAmountMinor;
+  private Integer discountAmountMinor;
+  private String couponId;
+  private String couponReservationId;
+  private Instant expireAt;
 
   // Both columns are maintained by the database (DEFAULT / ON UPDATE), so they are never written.
   @TableField(value = "created_at", insertStrategy = FieldStrategy.NEVER, updateStrategy = FieldStrategy.NEVER)
@@ -35,6 +41,8 @@ public class TicketOrderEntity {
   public void setUserId(String userId) { this.userId = userId; }
   public String getSessionId() { return sessionId; }
   public void setSessionId(String sessionId) { this.sessionId = sessionId; }
+  public String getActivityId() { return activityId; }
+  public void setActivityId(String activityId) { this.activityId = activityId; }
   public String getSeatIds() { return seatIds; }
   public void setSeatIds(String seatIds) { this.seatIds = seatIds; }
   public Integer getQuantity() { return quantity; }
@@ -49,6 +57,16 @@ public class TicketOrderEntity {
   public void setStatus(String status) { this.status = status; }
   public Integer getAmountMinor() { return amountMinor; }
   public void setAmountMinor(Integer amountMinor) { this.amountMinor = amountMinor; }
+  public Integer getOriginalAmountMinor() { return originalAmountMinor; }
+  public void setOriginalAmountMinor(Integer value) { this.originalAmountMinor = value; }
+  public Integer getDiscountAmountMinor() { return discountAmountMinor; }
+  public void setDiscountAmountMinor(Integer value) { this.discountAmountMinor = value; }
+  public String getCouponId() { return couponId; }
+  public void setCouponId(String value) { this.couponId = value; }
+  public String getCouponReservationId() { return couponReservationId; }
+  public void setCouponReservationId(String value) { this.couponReservationId = value; }
+  public Instant getExpireAt() { return expireAt; }
+  public void setExpireAt(Instant value) { this.expireAt = value; }
   public Instant getCreatedAt() { return createdAt; }
   public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
   public Instant getUpdatedAt() { return updatedAt; }

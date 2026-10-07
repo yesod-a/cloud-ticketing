@@ -9,6 +9,8 @@ import jakarta.validation.Valid;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.Arrays;
+import java.util.List;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestPart;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -144,6 +147,23 @@ public class AuthController {
         .body(new ByteArrayResource(stored.readBytes()));
   }
 
+  @GetMapping("/public-profiles")
+  public ResponseEntity<AuthDtos.ApiResponse<List<AuthDtos.PublicProfileView>>> publicProfiles(
+      @RequestParam(defaultValue = "") String ids, HttpServletRequest http) {
+    List<UUID> userIds = Arrays.stream(ids.split(","))
+        .map(String::trim)
+        .filter(value -> !value.isBlank())
+        .flatMap(value -> {
+          try { return java.util.stream.Stream.of(UUID.fromString(value)); }
+          catch (IllegalArgumentException ignored) { return java.util.stream.Stream.empty(); }
+        })
+        .distinct().limit(100).toList();
+    List<AuthDtos.PublicProfileView> profiles = auth.publicProfiles(userIds).stream()
+        .map(user -> new AuthDtos.PublicProfileView(user.getId().toString(), user.getNickname(), avatarUrl(user)))
+        .toList();
+    return ResponseEntity.ok(new AuthDtos.ApiResponse<>("OK", "ok", trace(http), profiles));
+  }
+
   private static String trace(HttpServletRequest request) {
     String trace = request.getHeader("X-Trace-Id");
     return trace == null ? "" : trace;
@@ -161,13 +181,14 @@ public class AuthController {
   }
 
   private static AuthDtos.UserView view(AuthUserEntity user) {
-    String avatarUrl = null;
-    if (user.getAvatarFilename() != null && user.getId() != null) {
-      Instant version = user.getUpdatedAt() == null ? user.getCreatedAt() : user.getUpdatedAt();
-      avatarUrl = "/api/auth/avatars/" + user.getId()
-          + (version == null ? "" : "?v=" + version.toEpochMilli());
-    }
+    String avatarUrl = avatarUrl(user);
     return new AuthDtos.UserView(user.getId().toString(), user.getPhone(), user.getEmail(),
         user.getNickname(), user.getStatus(), avatarUrl, user.getCreatedAt());
+  }
+
+  private static String avatarUrl(AuthUserEntity user) {
+    if (user.getAvatarFilename() == null || user.getId() == null) return null;
+    Instant version = user.getUpdatedAt() == null ? user.getCreatedAt() : user.getUpdatedAt();
+    return "/api/auth/avatars/" + user.getId() + (version == null ? "" : "?v=" + version.toEpochMilli());
   }
 }

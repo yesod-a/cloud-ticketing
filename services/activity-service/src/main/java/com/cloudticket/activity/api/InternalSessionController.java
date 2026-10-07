@@ -31,8 +31,9 @@ public class InternalSessionController {
     payload.put("status", session.status());
     payload.put("priceMinor", session.priceMinor());
     payload.put("layoutMode", session.layoutMode());
-    payload.put("capacity", session.capacity());
     payload.put("purchaseLimit", session.purchaseLimit());
+    payload.put("capacity", session.capacity());
+    payload.put("saleMode", session.saleMode());
     return payload;
   }
 }

@@ -19,12 +19,23 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 cloudticket:
+  queued:
+    enabled: ${CLOUDTICKET_QUEUED_ENABLED:false}
+    inventory-topic: ${CLOUDTICKET_QUEUED_INVENTORY_TOPIC:inventory-events}
+    order-consumer-group: ${CLOUDTICKET_QUEUED_ORDER_CONSUMER_GROUP:order-queued-v1}
   inventory-base-url: ${INVENTORY_BASE_URL:http://inventory-service:8082}
   activity-base-url: ${ACTIVITY_BASE_URL:http://activity-service:8081}
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
+  order-idempotency:
+    enabled: ${CLOUDTICKET_ORDER_IDEMPOTENCY_ENABLED:true}
+    ttl-seconds: ${CLOUDTICKET_ORDER_IDEMPOTENCY_TTL_SECONDS:900}
   outbox:
-    enabled: ${ORDER_OUTBOX_ENABLED:false}
+    enabled: ${ORDER_OUTBOX_ENABLED:true}
     topic: ${ORDER_OUTBOX_TOPIC:order-events}
     batch-size: ${ORDER_OUTBOX_BATCH_SIZE:50}
     poll-ms: ${ORDER_OUTBOX_POLL_MS:1000}
@@ -33,4 +44,23 @@ cloudticket:
   order-expiry:
     enabled: ${ORDER_EXPIRY_ENABLED:true}
     payment-window-minutes: ${ORDER_PAYMENT_WINDOW_MINUTES:15}
-    poll-ms: ${ORDER_EXPIRY_POLL_MS:30000}
+    poll-ms: ${ORDER_EXPIRY_POLL_MS:300000}
+  order-timeout:
+    batch-size: ${ORDER_TIMEOUT_BATCH_SIZE:100}
+    lease-seconds: ${ORDER_TIMEOUT_LEASE_SECONDS:30}
+    poll-ms: ${ORDER_TIMEOUT_POLL_MS:30000}
+    rebuild-poll-ms: ${ORDER_TIMEOUT_REBUILD_POLL_MS:300000}
+    outbox-poll-ms: ${ORDER_TIMEOUT_OUTBOX_POLL_MS:1000}
+    outbox-batch-size: ${ORDER_TIMEOUT_OUTBOX_BATCH_SIZE:100}
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      appname: ${XXL_JOB_EXECUTOR_APPNAME:order-service}
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:0}
+      logpath: ${XXL_JOB_EXECUTOR_LOGPATH:./logs/xxl-job}
+      logretentiondays: ${XXL_JOB_EXECUTOR_LOG_RETENTION_DAYS:30}

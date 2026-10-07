@@ -23,13 +23,18 @@ public final class OrderViews {
     value.put("id", order.getId());
     value.put("userId", order.getUserId());
     value.put("sessionId", order.getSessionId());
+    value.put("activityId", order.getActivityId());
     value.put("seatIds", order.getSeatIds());
     value.put("quantity", order.getQuantity() == null ? 0 : order.getQuantity());
     value.put("ticketNumbers", order.getTicketNumbers() == null ? "" : order.getTicketNumbers());
     value.put("status", order.getStatus());
     value.put("requestHash", order.getRequestHash());
     value.put("amountMinor", order.getAmountMinor());
+    value.put("originalAmountMinor", order.getOriginalAmountMinor() == null ? order.getAmountMinor() : order.getOriginalAmountMinor());
+    value.put("discountAmountMinor", order.getDiscountAmountMinor() == null ? 0 : order.getDiscountAmountMinor());
+    value.put("couponId", order.getCouponId());
     value.put("createdAt", iso(order.getCreatedAt()));
+    value.put("expireAt", iso(order.getExpireAt()));
     value.put("updatedAt", iso(order.getUpdatedAt()));
     return value;
   }

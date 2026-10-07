@@ -8,7 +8,7 @@ const venues = ref<AdminVenue[]>([]), page = ref(0), total = ref(0), keyword = r
 const seats = ref<AdminVenueSeat[]>([]), selectedVenueId = ref(''), selectedVenue = ref<AdminVenue|null>(null)
 const showLayoutModal = ref(false)
 const showVenueModal = ref(false), editingVenue = ref<AdminVenue|null>(null), venueName = ref(''), venueAddress = ref('')
-const layoutMode = ref<'GRID'|'ROWS'>('GRID'), layoutArea = ref(''), rowCount = ref(10), seatsPerRow = ref(20), rowLabelType = ref<'LETTER'|'NUMBER'>('LETTER'), startSeatNumber = ref(1), rowsList = ref<{rowLabel:string;seatCount:number}[]>([{rowLabel:'A',seatCount:20}])
+const layoutMode = ref<'GRID'|'ROWS'|'GENERAL_ADMISSION'>('GRID'), layoutArea = ref(''), rowCount = ref(10), seatsPerRow = ref(20), rowLabelType = ref<'LETTER'|'NUMBER'>('LETTER'), startSeatNumber = ref(1), rowsList = ref<{rowLabel:string;seatCount:number}[]>([{rowLabel:'A',seatCount:20}]), admissionCapacity = ref(0)
 const showSeatModal = ref(false), seatArea = ref(''), seatRow = ref('A'), seatNumber = ref(1), seatDisplay = ref(''), seatX = ref(0), seatY = ref(0), seatType = ref('REGULAR')
 const groupedSeats = computed(() => { const map = new Map<string, AdminVenueSeat[]>(); for (const s of seats.value) { const key = `${s.areaLabel || '未分区'}｜${s.rowLabel}`; const list = map.get(key) || []; list.push(s); map.set(key, list) } return Array.from(map.entries()).map(([label, list]) => ({ label, list: list.slice().sort((a,b)=>a.x-b.x||a.seatNumber-b.seatNumber) })) })
 async function loadVenues() { loading.value = true; error.value = ''; try { const result = await adminVenuePage({ keyword: keyword.value, page: page.value, size: 10 }); venues.value = result.items; total.value = result.total } catch { error.value = '场馆加载失败，请检查权限或服务状态。' } finally { loading.value = false } }
@@ -16,10 +16,10 @@ async function loadSeats(id = selectedVenueId.value) { if (!id) { seats.value = 
 function openCreateVenue() { editingVenue.value = null; venueName.value = ''; venueAddress.value = ''; showVenueModal.value = true }
 function openEditVenue(row: AdminVenue) { editingVenue.value = row; venueName.value = row.name; venueAddress.value = row.address; showVenueModal.value = true }
 async function saveVenue() { if (!venueName.value.trim()) return; try { if (editingVenue.value) await updateAdminVenue(editingVenue.value.id, venueName.value, venueAddress.value); else await createAdminVenue(venueName.value, venueAddress.value); showVenueModal.value = false; await loadVenues() } catch { error.value = '场馆保存失败。' } }
-async function selectVenue(row: AdminVenue) { selectedVenueId.value = row.id; selectedVenue.value = row; showLayoutModal.value = true; await loadSeats(row.id) }
+async function selectVenue(row: AdminVenue) { selectedVenueId.value = row.id; selectedVenue.value = row; admissionCapacity.value = row.capacity || 0; layoutMode.value = 'GRID'; showLayoutModal.value = true; await loadSeats(row.id) }
 function addRow() { rowsList.value.push({ rowLabel: String.fromCharCode(65 + rowsList.value.length), seatCount: 20 }) }
 function removeRow(index: number) { rowsList.value.splice(index, 1) }
-async function generateLayout() { if (!selectedVenueId.value) return; try { const body: any = layoutMode.value === 'GRID' ? { mode: 'GRID', areaLabel: layoutArea.value, rowCount: rowCount.value, seatsPerRow: seatsPerRow.value, rowLabelType: rowLabelType.value, startSeatNumber: startSeatNumber.value } : { mode: 'ROWS', areaLabel: layoutArea.value, rows: rowsList.value }; seats.value = await generateAdminVenueLayout(selectedVenueId.value, body) } catch { error.value = '座位布局生成失败。' } }
+async function generateLayout() { if (!selectedVenueId.value) return; if (layoutMode.value === 'GENERAL_ADMISSION' && admissionCapacity.value < 1) { error.value = '取号通票需要填写正数容量。'; return } try { const body = layoutMode.value === 'GRID' ? { mode: 'GRID' as const, areaLabel: layoutArea.value, rowCount: rowCount.value, seatsPerRow: seatsPerRow.value, rowLabelType: rowLabelType.value, startSeatNumber: startSeatNumber.value } : layoutMode.value === 'ROWS' ? { mode: 'ROWS' as const, areaLabel: layoutArea.value, rows: rowsList.value } : { mode: 'GENERAL_ADMISSION' as const, capacity: admissionCapacity.value }; seats.value = await generateAdminVenueLayout(selectedVenueId.value, body); if (layoutMode.value === 'GENERAL_ADMISSION') { const capacity = admissionCapacity.value; if (selectedVenue.value) selectedVenue.value = { ...selectedVenue.value, capacity }; venues.value = venues.value.map(venue => venue.id === selectedVenueId.value ? { ...venue, capacity } : venue) } } catch { error.value = '座位布局生成失败。' } }
 async function addSeat() { if (!selectedVenueId.value || !seatRow.value.trim()) return; try { const created = await createAdminVenueSeat(selectedVenueId.value, { areaLabel: seatArea.value, rowLabel: seatRow.value, seatNumber: seatNumber.value, displayName: seatDisplay.value, x: seatX.value, y: seatY.value, seatType: seatType.value }); seats.value = [...seats.value, created]; showSeatModal.value = false } catch { error.value = '座位新增失败。' } }
 async function removeSeat(seat: AdminVenueSeat) { try { await deleteAdminVenueSeat(seat.venueId, seat.id); seats.value = seats.value.filter(s => s.id !== seat.id) } catch { error.value = '座位删除失败。' } }
 async function removeVenue(row: AdminVenue) { if (!window.confirm(`确定删除场馆“${row.name}”吗？`)) return; try { await deleteAdminVenue(row.id); await loadVenues() } catch { error.value = '场馆删除失败，可能存在关联场次。' } }
@@ -36,9 +36,9 @@ onMounted(loadVenues)
     <div class="pagination"><button class="secondary-btn" :disabled="page===0" @click="page--;loadVenues()">上一页</button><span>第 {{ page+1 }} 页 · 共 {{ total }} 条</span><button class="secondary-btn" :disabled="(page+1)*10>=total" @click="page++;loadVenues()">下一页</button></div>
 
     <div v-if="showLayoutModal" class="modal-backdrop" @click.self="showLayoutModal=false"><section class="modal-card wide">
-      <div class="admin-heading"><div><h3>{{ selectedVenue?.name }} · 座位布局</h3><small>{{ seats.length }} 个座位</small></div><button class="icon-btn" @click="showLayoutModal=false">×</button></div>
+      <div class="admin-heading"><div><h3>{{ selectedVenue?.name }} · 座位布局</h3><small>{{ layoutMode === 'GENERAL_ADMISSION' ? `${admissionCapacity} 个票号` : `${seats.length} 个座位` }}</small></div><button class="icon-btn" @click="showLayoutModal=false">×</button></div>
       <form v-if="can('seat-layout:write')" class="admin-form layout-form" @submit.prevent="generateLayout">
-        <label>生成方式<select v-model="layoutMode"><option value="GRID">统一行列</option><option value="ROWS">每行独立列数</option></select></label>
+        <label>生成方式<select v-model="layoutMode" data-testid="venue-layout-mode"><option value="GRID">统一行列</option><option value="ROWS">每行独立列数</option><option value="GENERAL_ADMISSION">取号通票（不展示座位）</option></select></label>
         <label>区域<input v-model="layoutArea" placeholder="如 VIP 区 / 看台"></label>
         <template v-if="layoutMode === 'GRID'">
           <label>行数<input v-model.number="rowCount" type="number" min="1"></label>
@@ -46,13 +46,14 @@ onMounted(loadVenues)
           <label>行号<select v-model="rowLabelType"><option value="LETTER">字母 A/B/C</option><option value="NUMBER">数字 1/2/3</option></select></label>
           <label>起始座号<input v-model.number="startSeatNumber" type="number" min="1"></label>
         </template>
-        <template v-else>
+        <template v-else-if="layoutMode === 'ROWS'">
           <div class="rows-editor"><div class="admin-heading"><h4>逐行配置</h4><button type="button" class="secondary-btn" @click="addRow">添加一行</button></div><div v-for="(row, index) in rowsList" :key="index" class="row-input"><input v-model="row.rowLabel" placeholder="排号"><input v-model.number="row.seatCount" type="number" min="1" placeholder="列数"><button type="button" class="icon-btn" @click="removeRow(index)">删除</button></div></div>
         </template>
-        <button class="primary-btn">生成并替换座位</button>
+        <label v-else>票号容量<input v-model.number="admissionCapacity" data-testid="venue-capacity" type="number" min="1" required></label>
+        <button class="primary-btn" data-testid="venue-layout-submit">{{ layoutMode === 'GENERAL_ADMISSION' ? '保存取号容量' : '生成并替换座位' }}</button>
       </form>
-      <div class="admin-actions"><button v-if="can('seat-layout:write')" class="secondary-btn" @click="showSeatModal=true">新增单座</button></div>
-      <div class="seat-preview"><div v-for="group in groupedSeats" :key="group.label" class="seat-preview-row"><span class="row-label">{{ group.label }}</span><span v-for="seat in group.list" :key="seat.id" class="seat-dot" :class="{disabled:!seat.enabled}">{{ seat.seatNumber }}</span></div><p v-if="!seats.length" class="muted">暂无座位，请先生成或新增。</p></div>
+      <div v-if="layoutMode !== 'GENERAL_ADMISSION'" class="admin-actions"><button v-if="can('seat-layout:write')" class="secondary-btn" @click="showSeatModal=true">新增单座</button></div>
+      <div class="seat-preview"><template v-if="layoutMode === 'GENERAL_ADMISSION'"><p class="muted">取号通票：共 {{ admissionCapacity }} 个票号，不生成实体座位。</p></template><template v-else><div v-for="group in groupedSeats" :key="group.label" class="seat-preview-row"><span class="row-label">{{ group.label }}</span><span v-for="seat in group.list" :key="seat.id" class="seat-dot" :class="{disabled:!seat.enabled}">{{ seat.seatNumber }}</span></div><p v-if="!seats.length" class="muted">暂无座位，请先生成或新增。</p></template></div>
     </section></div>
 
     <div v-if="showVenueModal" class="modal-backdrop" @click.self="showVenueModal=false"><form class="modal-card" @submit.prevent="saveVenue"><div class="admin-heading"><h3>{{ editingVenue ? '编辑场馆' : '新建场馆' }}</h3><button type="button" class="icon-btn" @click="showVenueModal=false">×</button></div><input v-model="venueName" placeholder="场馆名称" required><input v-model="venueAddress" placeholder="地址"><div class="modal-actions"><button type="button" class="secondary-btn" @click="showVenueModal=false">取消</button><button class="primary-btn">保存</button></div></form></div>

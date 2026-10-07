@@ -45,11 +45,15 @@ public class OrderController {
             "quantity and seatIds cannot be sent together");
       }
       int quantity = ((Number) body.get("quantity")).intValue();
-      return OrderViews.order(orders.createGeneralAdmission(user, text(body, "sessionId"), quantity,
-          text(body, "idempotencyKey")));
+      String couponId = text(body, "couponId");
+      return OrderViews.order(couponId.isBlank()
+          ? orders.createGeneralAdmission(user, text(body, "sessionId"), quantity, text(body, "idempotencyKey"))
+          : orders.createGeneralAdmission(user, text(body, "sessionId"), quantity, text(body, "idempotencyKey"), couponId));
     }
-    return OrderViews.order(orders.create(user, text(body, "sessionId"), text(body, "seatIds"),
-        text(body, "idempotencyKey")));
+    String couponId = text(body, "couponId");
+    return OrderViews.order(couponId.isBlank()
+        ? orders.create(user, text(body, "sessionId"), text(body, "seatIds"), text(body, "idempotencyKey"))
+        : orders.create(user, text(body, "sessionId"), text(body, "seatIds"), text(body, "idempotencyKey"), couponId));
   }
 
   @GetMapping("/me")

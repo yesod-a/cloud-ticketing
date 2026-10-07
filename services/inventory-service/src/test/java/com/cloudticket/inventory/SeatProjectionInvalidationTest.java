@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.cloudticket.inventory.cache.SeatBitmapProjection;
+import com.cloudticket.inventory.cache.InventoryLayoutProjection;
 import com.cloudticket.inventory.persistence.InventoryLockRepository;
 import com.cloudticket.inventory.persistence.InventorySeatRepository;
 import com.cloudticket.inventory.service.InventoryReservationService;
@@ -18,8 +19,9 @@ class SeatProjectionInvalidationTest {
   private final InventorySeatRepository seats = mock(InventorySeatRepository.class);
   private final InventoryLockRepository locks = mock(InventoryLockRepository.class);
   private final SeatBitmapProjection projection = mock(SeatBitmapProjection.class);
+  private final InventoryLayoutProjection layoutProjection = mock(InventoryLayoutProjection.class);
   private final InventoryReservationService service =
-      new InventoryReservationService(seats, locks, projection);
+      new InventoryReservationService(seats, locks, projection, null, layoutProjection);
 
   @Test
   void reserveInvalidatesSessionAfterDurableHold() {
@@ -29,6 +31,7 @@ class SeatProjectionInvalidationTest {
     service.reserve("order-1", "session-1", List.of("seat-1"), 60);
 
     verify(projection).invalidate("session-1");
+    verify(layoutProjection).invalidate("session-1");
   }
 
   @Test
@@ -39,6 +42,7 @@ class SeatProjectionInvalidationTest {
     service.release("order-1");
 
     verify(projection).invalidate("session-1");
+    verify(layoutProjection).invalidate("session-1");
   }
 
   @Test
@@ -50,5 +54,6 @@ class SeatProjectionInvalidationTest {
     service.confirm("order-1");
 
     verify(projection).invalidate("session-1");
+    verify(layoutProjection).invalidate("session-1");
   }
 }

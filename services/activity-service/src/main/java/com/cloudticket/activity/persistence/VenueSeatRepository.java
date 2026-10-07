@@ -84,6 +84,13 @@ public class VenueSeatRepository {
   /** Replaces the whole template in one transaction and keeps the venue capacity in step. */
   @Transactional
   public List<VenueSeat> replaceAll(String venueId, List<VenueSeat> generated) {
+    return replaceAll(venueId, generated, generated.size());
+  }
+
+  /** Replaces a template and allows capacity-only layouts to persist capacity without seat rows. */
+  @Transactional
+  public List<VenueSeat> replaceAll(String venueId, List<VenueSeat> generated, int capacity) {
+    if (capacity < 0) throw new IllegalArgumentException("capacity must be non-negative");
     venueSeats.delete(Wrappers.<VenueSeatEntity>lambdaQuery().eq(VenueSeatEntity::getVenueId, venueId));
     for (VenueSeat seat : generated) {
       VenueSeatEntity entity = new VenueSeatEntity();
@@ -100,7 +107,7 @@ public class VenueSeatRepository {
       entity.setStatus(seat.status());
       venueSeats.insert(entity);
     }
-    venues.refreshCapacity(venueId);
+    venues.setCapacity(venueId, capacity);
     return generated;
   }
 

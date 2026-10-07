@@ -94,9 +94,13 @@ services:
       INVENTORY_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
       CLOUDTICKET_SEAT_BITMAP_ENABLED: "${CLOUDTICKET_SEAT_BITMAP_ENABLED:-true}"
-      CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED: "${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:-false}"
-      CLOUDTICKET_INVENTORY_EVENTS_ENABLED: "${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:-false}"
+      CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED: "${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:-true}"
+      CLOUDTICKET_INVENTORY_EVENTS_ENABLED: "${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:-true}"
       CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED: "${CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED:-false}"
+      CLOUDTICKET_INVENTORY_PREHEAT_ENABLED: "${CLOUDTICKET_INVENTORY_PREHEAT_ENABLED:-true}"
+      CLOUDTICKET_INVENTORY_PREHEAT_BATCH_SIZE: "${CLOUDTICKET_INVENTORY_PREHEAT_BATCH_SIZE:-100}"
+      XXL_JOB_ADMIN_ADDRESSES: "${XXL_JOB_ADMIN_ADDRESSES:-}"
+      XXL_JOB_ACCESS_TOKEN: "${XXL_JOB_ACCESS_TOKEN:-default_token}"
       NACOS_SERVER_ADDR: nacos:8848
     depends_on: { redis: { condition: service_healthy }, mysql: { condition: service_healthy }, kafka: { condition: service_started }, nacos: { condition: service_started } }
   order-service:
@@ -108,12 +112,45 @@ services:
       ORDER_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
       INVENTORY_BASE_URL: "http://inventory-service:8082"
       ACTIVITY_BASE_URL: "http://activity-service:8081"
+      PROMOTION_BASE_URL: "http://promotion-service:8084"
       INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       SPRING_KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
       ORDER_OUTBOX_ENABLED: "true"
+      CLOUDTICKET_ORDER_IDEMPOTENCY_ENABLED: "true"
+      XXL_JOB_ADMIN_ADDRESSES: "${XXL_JOB_ADMIN_ADDRESSES:-}"
+      XXL_JOB_ACCESS_TOKEN: "${XXL_JOB_ACCESS_TOKEN:-default_token}"
       NACOS_SERVER_ADDR: nacos:8848
-    depends_on: { mysql: { condition: service_healthy }, inventory-service: { condition: service_started }, kafka: { condition: service_started }, nacos: { condition: service_started } }
+    depends_on: { mysql: { condition: service_healthy }, redis: { condition: service_healthy }, inventory-service: { condition: service_started }, promotion-service: { condition: service_started }, kafka: { condition: service_started }, nacos: { condition: service_started } }
+  promotion-service:
+    build: { context: ., dockerfile: Dockerfile.promotion }
+    environment:
+      PROMOTION_SERVER_PORT: 8084
+      PROMOTION_DB_URL: "jdbc:mysql://mysql:3306/promotion_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      PROMOTION_DB_USERNAME: root
+      PROMOTION_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { mysql: { condition: service_healthy }, redis: { condition: service_healthy }, kafka: { condition: service_started }, nacos: { condition: service_started } }
+  comment-service:
+    build: { context: ., dockerfile: Dockerfile.comment }
+    environment:
+      COMMENT_SERVER_PORT: 8085
+      COMMENT_DB_URL: "jdbc:mysql://mysql:3306/comment_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      COMMENT_DB_USERNAME: root
+      COMMENT_DB_PASSWORD: "${MYSQL_ROOT_PASSWORD:-cloudticket}"
+      ORDER_BASE_URL: "http://order-service:8083"
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      KAFKA_BOOTSTRAP_SERVERS: "kafka:9092"
+      INTERNAL_SERVICE_TOKEN: "${INTERNAL_SERVICE_TOKEN:-dev-internal-token}"
+      NACOS_SERVER_ADDR: nacos:8848
+    depends_on: { mysql: { condition: service_healthy }, redis: { condition: service_healthy }, order-service: { condition: service_started }, nacos: { condition: service_started } }
   gateway:
     build: { context: ., dockerfile: Dockerfile.gateway }
     environment:

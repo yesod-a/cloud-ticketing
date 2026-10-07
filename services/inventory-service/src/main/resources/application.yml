@@ -19,19 +19,51 @@ spring:
     bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
     consumer:
       auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
 cloudticket:
+  queued:
+    enabled: ${CLOUDTICKET_QUEUED_ENABLED:false}
+    idempotency-ttl-seconds: ${CLOUDTICKET_QUEUED_IDEMPOTENCY_TTL_SECONDS:86400}
+    publisher-enabled: ${CLOUDTICKET_QUEUED_PUBLISHER_ENABLED:false}
+    publisher-session: ${CLOUDTICKET_QUEUED_PUBLISHER_SESSION:}
+    topic: ${CLOUDTICKET_QUEUED_TOPIC:ticket-reservations-v1}
+    outbox-enabled: ${CLOUDTICKET_QUEUED_OUTBOX_ENABLED:false}
+    outbox-poll-ms: ${CLOUDTICKET_QUEUED_OUTBOX_POLL_MS:500}
+    inventory-topic: ${CLOUDTICKET_QUEUED_INVENTORY_TOPIC:inventory-events}
+    consumer-group: ${CLOUDTICKET_QUEUED_INVENTORY_CONSUMER_GROUP:inventory-queued-v1}
   internal-service-token: ${INTERNAL_SERVICE_TOKEN:dev-internal-token}
   seat-bitmap:
     enabled: ${CLOUDTICKET_SEAT_BITMAP_ENABLED:true}
   redis-seat-lock:
-    enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:false}
+    enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:true}
   inventory:
+    preheat:
+      enabled: ${CLOUDTICKET_INVENTORY_PREHEAT_ENABLED:true}
+      batch-size: ${CLOUDTICKET_INVENTORY_PREHEAT_BATCH_SIZE:100}
+      pool-size: ${CLOUDTICKET_INVENTORY_PREHEAT_POOL_SIZE:4}
+      queue-capacity: ${CLOUDTICKET_INVENTORY_PREHEAT_QUEUE_CAPACITY:100}
+      lock-seconds: ${CLOUDTICKET_INVENTORY_PREHEAT_LOCK_SECONDS:90}
     redis-lock:
-      enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:false}
+      enabled: ${CLOUDTICKET_REDIS_SEAT_LOCK_ENABLED:true}
     events:
-      enabled: ${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:false}
+      enabled: ${CLOUDTICKET_INVENTORY_EVENTS_ENABLED:true}
       topic: ${CLOUDTICKET_ORDER_EVENTS_TOPIC:order-events}
       group-id: ${CLOUDTICKET_INVENTORY_EVENTS_GROUP:inventory-seat-projection}
     reconciliation:
       enabled: ${CLOUDTICKET_INVENTORY_RECONCILIATION_ENABLED:false}
       poll-ms: ${CLOUDTICKET_INVENTORY_RECONCILIATION_POLL_MS:60000}
+xxl:
+  job:
+    admin:
+      addresses: ${XXL_JOB_ADMIN_ADDRESSES:}
+    accessToken: ${XXL_JOB_ACCESS_TOKEN:default_token}
+    executor:
+      appname: ${XXL_JOB_EXECUTOR_APPNAME:inventory-service}
+      address: ${XXL_JOB_EXECUTOR_ADDRESS:}
+      ip: ${XXL_JOB_EXECUTOR_IP:}
+      port: ${XXL_JOB_EXECUTOR_PORT:0}
+      logpath: ${XXL_JOB_EXECUTOR_LOGPATH:./logs/xxl-job}
+      logretentiondays: ${XXL_JOB_EXECUTOR_LOG_RETENTION_DAYS:30}

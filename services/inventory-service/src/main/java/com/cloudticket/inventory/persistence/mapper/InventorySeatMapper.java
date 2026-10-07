@@ -5,9 +5,16 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.cloudticket.inventory.persistence.entity.InventorySeatEntity;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 import java.util.List;
 
 public interface InventorySeatMapper extends BaseMapper<InventorySeatEntity> {
+
+  @Update("<script>UPDATE inventory_seat SET status='LOCKED' WHERE session_id=#{sessionId} AND status='AVAILABLE' AND id IN <foreach collection='seatIds' item='id' open='(' separator=',' close=')'>#{id}</foreach></script>")
+  int lockBatch(@Param("sessionId") String sessionId, @Param("seatIds") List<String> seatIds);
+
+  @Select("<script>SELECT id FROM inventory_seat WHERE session_id=#{sessionId} AND seat_index IN <foreach collection='indexes' item='index' open='(' separator=',' close=')'>#{index}</foreach> ORDER BY seat_index</script>")
+  List<String> idsByIndexes(@Param("sessionId") String sessionId, @Param("indexes") List<Integer> indexes);
 
   @Select("SELECT DISTINCT session_id FROM inventory_seat ORDER BY session_id")
   List<String> selectSessionIds();

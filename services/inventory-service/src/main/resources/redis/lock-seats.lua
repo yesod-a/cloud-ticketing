@@ -1,15 +1,18 @@
--- KEYS[1..3] are sold, locked, disabled bitmaps; remaining keys are temporary holds.
+-- KEYS[1] is the ready pointer; KEYS[2..4] are sold, locked, disabled bitmaps.
 -- ARGV[1] token, ARGV[2] bounded TTL, ARGV[3..] stable seat indexes.
-for i = 1, (#KEYS - 3) do
+if redis.call('GET', KEYS[1]) == false or redis.call('GET', KEYS[1]) == '0' then
+  return 0
+end
+for i = 1, (#KEYS - 4) do
   local index = ARGV[i + 2]
-  if redis.call('GETBIT', KEYS[1], index) == 1
-      or redis.call('GETBIT', KEYS[2], index) == 1
+  if redis.call('GETBIT', KEYS[2], index) == 1
       or redis.call('GETBIT', KEYS[3], index) == 1
-      or redis.call('EXISTS', KEYS[i + 3]) == 1 then
+      or redis.call('GETBIT', KEYS[4], index) == 1
+      or redis.call('EXISTS', KEYS[i + 4]) == 1 then
     return 0
   end
 end
-for i = 4, #KEYS do
+for i = 5, #KEYS do
   redis.call('SET', KEYS[i], ARGV[1], 'NX', 'PX', ARGV[2])
 end
 return 1

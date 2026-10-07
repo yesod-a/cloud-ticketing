@@ -3,6 +3,7 @@ package com.cloudticket.activity.service;
 import com.cloudticket.activity.domain.SeatLayoutRules;
 import com.cloudticket.activity.domain.Venue;
 import com.cloudticket.activity.domain.VenueSeat;
+import com.cloudticket.activity.layout.GeneralAdmissionLayoutStrategy;
 import com.cloudticket.activity.layout.SeatLayoutStrategy;
 import com.cloudticket.activity.layout.SeatLayoutStrategyRegistry;
 import com.cloudticket.activity.persistence.SessionRepository;
@@ -93,6 +94,9 @@ public class VenueService {
   public List<VenueSeat> generateLayout(String venueId, SeatLayoutRules rules) {
     if (venueId == null || venueId.isBlank()) throw new IllegalArgumentException("venueId required");
     SeatLayoutStrategy strategy = layouts.resolve(rules.mode());
-    return venueSeats.replaceAll(venueId, strategy.generate(venueId, rules));
+    List<VenueSeat> generated = strategy.generate(venueId, rules);
+    return GeneralAdmissionLayoutStrategy.MODE.equalsIgnoreCase(rules.mode())
+        ? venueSeats.replaceAll(venueId, generated, rules.capacityOrZero())
+        : venueSeats.replaceAll(venueId, generated);
   }
 }

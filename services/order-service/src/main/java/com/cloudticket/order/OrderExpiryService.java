@@ -77,6 +77,11 @@ public class OrderExpiryService {
           log.warn("Inventory release failed for expired order {}", orderId, releaseFailure);
         }
       }
+      try {
+        orders.releaseCouponReservation(candidate);
+      } catch (RuntimeException releaseFailure) {
+        log.warn("Promotion release failed for expired order {}", orderId, releaseFailure);
+      }
     }
     if (purchases != null) purchases.expireReservations();
     return expired;

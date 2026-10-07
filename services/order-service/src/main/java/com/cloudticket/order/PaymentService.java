@@ -1,6 +1,7 @@
 package com.cloudticket.order;
 
 import com.cloudticket.order.client.InventoryReservationClient;
+import com.cloudticket.order.client.PromotionClient;
 import com.cloudticket.order.payment.PaymentChannel;
 import com.cloudticket.order.payment.PaymentChannelRegistry;
 import com.cloudticket.order.persistence.PaymentRepository;
@@ -29,22 +30,32 @@ public class PaymentService {
   private final QrCodeGenerator qr;
   private final PaymentChannelRegistry channels;
   private final int paymentWindowMinutes;
+  private final PromotionClient promotions;
 
   public PaymentService(PaymentRepository store, QrCodeGenerator qr, PaymentChannelRegistry channels) {
-    this(store, null, null, qr, channels, 15);
+    this(store, null, null, qr, channels, 15, null);
+  }
+
+  public PaymentService(PaymentRepository store, InventoryReservationClient inventory,
+                        UserSessionPurchaseRepository purchases, QrCodeGenerator qr,
+                        PaymentChannelRegistry channels,
+                        @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
+    this(store, inventory, purchases, qr, channels, paymentWindowMinutes, null);
   }
 
   @Autowired
   public PaymentService(PaymentRepository store, InventoryReservationClient inventory,
                         UserSessionPurchaseRepository purchases, QrCodeGenerator qr,
                         PaymentChannelRegistry channels,
-                        @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
+                        @Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes,
+                        PromotionClient promotions) {
     this.store = store;
     this.inventory = inventory;
     this.purchases = purchases;
     this.qr = qr;
     this.channels = channels;
     this.paymentWindowMinutes = Math.max(1, paymentWindowMinutes);
+    this.promotions = promotions;
   }
 
   public Map<String, Object> status(String orderId, String userId) {
@@ -74,6 +85,7 @@ public class PaymentService {
     requirePayable(order);
     PaymentChannel channel = channels.resolve(existing.getMethod());
     PaymentEntity paid = store.markPaid(orderId, existing.getId(), channel.newTransactionId());
+    if (promotions != null) promotions.consume(order.getCouponReservationId());
     confirmInventory(order);
     TicketOrderEntity refreshed = store.findOrder(orderId).orElse(order);
     return view(refreshed, paid);
@@ -101,6 +113,9 @@ public class PaymentService {
 
   private void requirePayable(TicketOrderEntity order) {
     if (!"PENDING".equals(order.getStatus())) throw new IllegalStateException("order is not payable");
+    if (order.getExpireAt() != null && !Instant.now().isBefore(order.getExpireAt())) {
+      throw new IllegalStateException("order payment window expired");
+    }
   }
 
   private static String randomToken() {
@@ -114,7 +129,9 @@ public class PaymentService {
     String method = payment.getMethod() == null ? "WECHAT" : payment.getMethod();
     PaymentChannel channel = channels.resolve(method);
     String qrContent = channel.qrContent(orderId, payment.getQrToken());
-    Instant expiresAt = order.getCreatedAt().plus(paymentWindowMinutes, ChronoUnit.MINUTES);
+    Instant expiresAt = order.getExpireAt() == null
+        ? order.getCreatedAt().plus(paymentWindowMinutes, ChronoUnit.MINUTES)
+        : order.getExpireAt();
     LinkedHashMap<String, Object> value = new LinkedHashMap<>();
     value.put("paymentId", payment.getId());
     value.put("orderId", orderId);

@@ -10,6 +10,7 @@ import com.cloudticket.common.security.ResourceScopeRule;
 import com.cloudticket.common.web.PageResult;
 import com.cloudticket.inventory.persistence.InventorySeatRepository;
 import com.cloudticket.inventory.cache.SeatBitmapProjection;
+import com.cloudticket.inventory.cache.InventoryLayoutProjection;
 import com.cloudticket.inventory.security.InventoryAuthorization;
 import java.util.List;
 import java.util.Map;
@@ -36,16 +37,23 @@ public class InternalInventoryController {
 
   private final InventorySeatRepository seats;
   private final SeatBitmapProjection projection;
+  private final InventoryLayoutProjection layoutProjection;
   private final InventoryAuthorization policy = new InventoryAuthorization();
 
   public InternalInventoryController(InventorySeatRepository seats) {
-    this(seats, null);
+    this(seats, null, null);
+  }
+
+  public InternalInventoryController(InventorySeatRepository seats, SeatBitmapProjection projection) {
+    this(seats, projection, null);
   }
 
   @org.springframework.beans.factory.annotation.Autowired
-  public InternalInventoryController(InventorySeatRepository seats, SeatBitmapProjection projection) {
+  public InternalInventoryController(InventorySeatRepository seats, SeatBitmapProjection projection,
+                                     InventoryLayoutProjection layoutProjection) {
     this.seats = seats;
     this.projection = projection;
+    this.layoutProjection = layoutProjection;
   }
 
   @RequirePermission("inventory:read")
@@ -82,6 +90,10 @@ public class InternalInventoryController {
       seats.find(id).map(com.cloudticket.inventory.persistence.entity.InventorySeatEntity::getSessionId)
           .ifPresent(projection::invalidate);
     }
+    if (layoutProjection != null) {
+      seats.find(id).map(com.cloudticket.inventory.persistence.entity.InventorySeatEntity::getSessionId)
+          .ifPresent(layoutProjection::invalidate);
+    }
     return Map.of("id", id, "status", status);
   }
 
@@ -99,6 +111,10 @@ public class InternalInventoryController {
     if (projection != null) {
       seats.find(id).map(com.cloudticket.inventory.persistence.entity.InventorySeatEntity::getSessionId)
           .ifPresent(projection::invalidate);
+    }
+    if (layoutProjection != null) {
+      seats.find(id).map(com.cloudticket.inventory.persistence.entity.InventorySeatEntity::getSessionId)
+          .ifPresent(layoutProjection::invalidate);
     }
     return Map.of("id", id, "status", InventorySeatRepository.AVAILABLE);
   }

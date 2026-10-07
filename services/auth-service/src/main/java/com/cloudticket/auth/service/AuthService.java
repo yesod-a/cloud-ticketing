@@ -9,6 +9,7 @@ import com.cloudticket.auth.security.TokenService;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Locale;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -143,6 +144,11 @@ public class AuthService {
 
   public AuthUserEntity me(UUID userId) {
     return Optional.ofNullable(users.selectById(userId)).orElseThrow(InvalidCredentialsException::new);
+  }
+
+  public List<AuthUserEntity> publicProfiles(List<UUID> ids) {
+    if (ids == null || ids.isEmpty()) return List.of();
+    return users.selectPublicProfiles(ids.stream().distinct().limit(100).toList());
   }
 
   public AuthUserEntity updateNickname(UUID userId, String nickname) {

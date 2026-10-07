@@ -28,19 +28,25 @@ public class ActivitySessionClient {
 
   public SessionInfo session(String sessionId) {
     Map<String, Object> body = sessionBody(sessionId);
-    return new SessionInfo(String.valueOf(body.getOrDefault("layoutMode", "GRID")),
+    return new SessionInfo(String.valueOf(body.getOrDefault("activityId", "")), String.valueOf(body.getOrDefault("layoutMode", "GRID")),
         body.get("priceMinor") instanceof Number n ? n.intValue() : 0,
         body.get("purchaseLimit") instanceof Number n ? n.intValue() : 0,
-        String.valueOf(body.getOrDefault("status", "DRAFT")));
+        String.valueOf(body.getOrDefault("status", "DRAFT")),
+        body.get("capacity") instanceof Number n ? n.intValue() : 0,
+        String.valueOf(body.getOrDefault("saleMode", "DIRECT")));
   }
 
   private Map<String, Object> sessionBody(String sessionId) {
     return internal.get(baseUrl, "/api/internal/sessions/{sessionId}", SESSION_RESPONSE, sessionId);
   }
 
-  public record SessionInfo(String layoutMode, int priceMinor, int purchaseLimit, String status) {
+  public record SessionInfo(String activityId, String layoutMode, int priceMinor, int purchaseLimit, String status, int capacity, String saleMode) {
+    public SessionInfo(String layoutMode, int priceMinor, int purchaseLimit, String status, int capacity, String saleMode) { this("", layoutMode, priceMinor, purchaseLimit, status, capacity, saleMode); }
+    public SessionInfo(String layoutMode, int priceMinor, int purchaseLimit, String status) {
+      this("", layoutMode, priceMinor, purchaseLimit, status, 0, "DIRECT");
+    }
     public SessionInfo(String layoutMode, int priceMinor, int purchaseLimit) {
-      this(layoutMode, priceMinor, purchaseLimit, "ONSALE");
+      this(layoutMode, priceMinor, purchaseLimit, "ONSALE", 0, "DIRECT");
     }
   }
 }

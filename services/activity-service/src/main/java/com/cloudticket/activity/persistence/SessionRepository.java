@@ -62,6 +62,18 @@ public class SessionRepository {
 
   public Session create(String activityId, String venueId, Instant startsAt, Instant endsAt, String status,
                         int priceMinor, String layoutMode, int capacity, int purchaseLimit) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, "DIRECT");
+  }
+
+  public Session create(String activityId, String venueId, Instant startsAt, Instant endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit, String saleMode) {
+    return create(activityId, venueId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit,
+        saleMode, null);
+  }
+
+  public Session create(String activityId, String venueId, Instant startsAt, Instant endsAt, String status,
+                        int priceMinor, String layoutMode, int capacity, int purchaseLimit, String saleMode,
+                        Instant saleStartAt) {
     requireTimeWindow(startsAt, endsAt);
     requirePrice(priceMinor);
     String mode = requireMode(layoutMode);
@@ -78,6 +90,8 @@ public class SessionRepository {
     entity.setLayoutMode(mode);
     entity.setCapacity(capacity);
     entity.setPurchaseLimit(purchaseLimit);
+    entity.setSaleMode(requireSaleMode(saleMode));
+    entity.setSaleStartAt(saleStartAt);
     sessions.insert(entity);
     return require(entity.getId());
   }
@@ -90,9 +104,20 @@ public class SessionRepository {
 
   public Session update(String sessionId, Instant startsAt, Instant endsAt, String status, int priceMinor,
                         String layoutMode, int capacity, int purchaseLimit) {
+    return update(sessionId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, "DIRECT");
+  }
+
+  public Session update(String sessionId, Instant startsAt, Instant endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit, String saleMode) {
+    return update(sessionId, startsAt, endsAt, status, priceMinor, layoutMode, capacity, purchaseLimit, saleMode, null);
+  }
+
+  public Session update(String sessionId, Instant startsAt, Instant endsAt, String status, int priceMinor,
+                        String layoutMode, int capacity, int purchaseLimit, String saleMode, Instant saleStartAt) {
     requireTimeWindow(startsAt, endsAt);
     requirePrice(priceMinor);
     String mode = requireMode(layoutMode);
+    String sale = requireSaleMode(saleMode);
     requireCapacity(mode, capacity);
     requirePurchaseLimit(purchaseLimit);
     Session current = require(sessionId);
@@ -108,6 +133,8 @@ public class SessionRepository {
         .set(SessionEntity::getLayoutMode, mode)
         .set(SessionEntity::getCapacity, capacity)
         .set(SessionEntity::getPurchaseLimit, purchaseLimit)
+        .set(SessionEntity::getSaleMode, sale)
+        .set(SessionEntity::getSaleStartAt, saleStartAt)
         .eq(SessionEntity::getId, sessionId));
     return require(sessionId);
   }
@@ -179,7 +206,9 @@ public class SessionRepository {
         row.getPriceMinor() == null ? 0 : row.getPriceMinor(),
         row.getLayoutMode() == null || row.getLayoutMode().isBlank() ? "GRID" : row.getLayoutMode(),
         row.getCapacity() == null ? 0 : row.getCapacity(),
-        row.getPurchaseLimit() == null ? 0 : row.getPurchaseLimit());
+        row.getPurchaseLimit() == null ? 0 : row.getPurchaseLimit(),
+        row.getSaleMode() == null || row.getSaleMode().isBlank() ? "DIRECT" : row.getSaleMode(),
+        row.getSaleStartAt() == null ? null : row.getSaleStartAt().toString());
   }
 
   private Map<String, String> venueNames(List<SessionEntity> rows) {
@@ -217,5 +246,11 @@ public class SessionRepository {
 
   private static void requirePurchaseLimit(int purchaseLimit) {
     if (purchaseLimit < 0) throw new IllegalArgumentException("purchaseLimit must be non-negative");
+  }
+
+  private static String requireSaleMode(String saleMode) {
+    String clean = saleMode == null || saleMode.isBlank() ? "DIRECT" : saleMode.trim().toUpperCase(java.util.Locale.ROOT);
+    if (!java.util.Set.of("DIRECT", "QUEUED").contains(clean)) throw new IllegalArgumentException("saleMode must be DIRECT or QUEUED");
+    return clean;
   }
 }
