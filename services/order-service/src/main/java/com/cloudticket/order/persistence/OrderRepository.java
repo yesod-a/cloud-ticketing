@@ -19,6 +19,7 @@ import com.cloudticket.order.event.OutboxEventWriter;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import com.cloudticket.order.persistence.mapper.TicketOrderMapper;
 import com.cloudticket.order.timeout.OrderTimeoutOutboxWriter;
+import com.cloudticket.order.OrderTimeoutZsetService;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -42,23 +43,30 @@ public class OrderRepository {
   private final PromotionClient promotions;
   private final OrderIdempotencyGate idempotencyGate;
   private final OrderTimeoutOutboxWriter timeoutOutbox;
+  private final OrderTimeoutZsetService timeoutZset;
   private final int paymentWindowMinutes;
 
   public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
                          ActivitySessionClient sessions, OutboxEventWriter outbox) {
-    this(orders, inventory, sessions, outbox, null, null, null, null, 15);
+    this(orders, inventory, sessions, outbox, null, null, null, null, null, 15);
   }
 
   public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
                          ActivitySessionClient sessions, OutboxEventWriter outbox,
                          UserSessionPurchaseRepository purchases) {
-    this(orders, inventory, sessions, outbox, purchases, null, null, null, 15);
+    this(orders, inventory, sessions, outbox, purchases, null, null, null, null, 15);
   }
 
   public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
                          ActivitySessionClient sessions, OutboxEventWriter outbox,
                          UserSessionPurchaseRepository purchases, PromotionClient promotions) {
-    this(orders, inventory, sessions, outbox, purchases, promotions, null, null, 15);
+    this(orders, inventory, sessions, outbox, purchases, promotions, null, null, null, 15);
+  }
+
+  public OrderRepository(TicketOrderMapper orders, InventoryReservationClient inventory,
+                         ActivitySessionClient sessions, OutboxEventWriter outbox,
+                         OrderTimeoutZsetService timeoutZset) {
+    this(orders, inventory, sessions, outbox, null, null, null, null, timeoutZset, 15);
   }
 
   @org.springframework.beans.factory.annotation.Autowired
@@ -66,6 +74,7 @@ public class OrderRepository {
                          ActivitySessionClient sessions, OutboxEventWriter outbox,
                          UserSessionPurchaseRepository purchases, PromotionClient promotions,
                          OrderIdempotencyGate idempotencyGate, OrderTimeoutOutboxWriter timeoutOutbox,
+                         OrderTimeoutZsetService timeoutZset,
                          @org.springframework.beans.factory.annotation.Value("${cloudticket.order-expiry.payment-window-minutes:15}") int paymentWindowMinutes) {
     this.orders = orders;
     this.inventory = inventory;
@@ -75,6 +84,7 @@ public class OrderRepository {
     this.promotions = promotions;
     this.idempotencyGate = idempotencyGate;
     this.timeoutOutbox = timeoutOutbox;
+    this.timeoutZset = timeoutZset;
     this.paymentWindowMinutes = Math.max(1, paymentWindowMinutes);
   }
 
@@ -105,11 +115,13 @@ public class OrderRepository {
     order.setIdempotencyKey(key); order.setRequestHash(requestHash); order.setStatus("PENDING");
     order.setExpireAt(expiryDeadline());
     order.setOriginalAmountMinor(originalAmount); order.setDiscountAmountMinor(coupon.discountAmountMinor()); order.setAmountMinor(coupon.payableAmountMinor());
+    scheduleTimeout(order);
     try {
       // Claim the unique idempotency key before any quota or inventory side effects. A concurrent
       // replay therefore observes the winner instead of racing into a purchase-limit conflict.
       orders.insert(order);
     } catch (DuplicateKeyException concurrentDuplicate) {
+      removeTimeout(id);
       return findByIdempotencyKey(key).map(existing -> replay(existing, requestHash)).orElseThrow(() -> concurrentDuplicate);
     }
     try {
@@ -119,9 +131,9 @@ public class OrderRepository {
       orders.updateById(order);
       TicketOrderEntity created = orders.selectById(id);
       outbox.write(EventTypes.ORDER_CREATED, id, new OrderCreatedPayload(created.getId(), created.getUserId(), created.getSessionId(), created.getSeatIds(), created.getStatus(), created.getAmountMinor(), created.getCreatedAt()));
-      if (timeoutOutbox != null) timeoutOutbox.write(created.getId(), created.getExpireAt());
       return created;
     } catch (RuntimeException failure) {
+      removeTimeout(id);
       inventory.releaseQuantity(id); if (purchases != null) purchases.release(id, userId, sessionId, quantity); if (promotions != null) promotions.release(coupon.reservationId()); throw failure;
     }
   }
@@ -179,21 +191,24 @@ public class OrderRepository {
       order.setStatus("PENDING");
       order.setExpireAt(expiryDeadline());
       order.setOriginalAmountMinor(originalAmount); order.setDiscountAmountMinor(coupon.discountAmountMinor()); order.setAmountMinor(coupon.payableAmountMinor());
+      scheduleTimeout(order);
       orders.insert(order);
       TicketOrderEntity created = orders.selectById(id);
       outbox.write(EventTypes.ORDER_CREATED, id,
           new OrderCreatedPayload(created.getId(), created.getUserId(), created.getSessionId(),
               created.getSeatIds(), created.getStatus(), created.getAmountMinor(), created.getCreatedAt()));
-      if (timeoutOutbox != null) timeoutOutbox.write(created.getId(), created.getExpireAt());
+      promoteInventory(created.getId());
       return created;
     } catch (DuplicateKeyException concurrentDuplicate) {
       if (inventoryReserved && inventory != null) inventory.release(id);
       if (coupon != null && promotions != null) promotions.release(coupon.reservationId());
+      removeTimeout(id);
       return findByIdempotencyKey(key).map(existing -> replay(existing, requestHash))
           .orElseThrow(() -> concurrentDuplicate);
     } catch (RuntimeException failure) {
       if (inventoryReserved && inventory != null) inventory.release(id);
       if (coupon != null && promotions != null) promotions.release(coupon.reservationId());
+      removeTimeout(id);
       if (idempotencyGate != null) idempotencyGate.release(claim, key);
       throw failure;
     }
@@ -227,13 +242,36 @@ public class OrderRepository {
     order.setRequestHash(requestHash(userId, sessionId, quantity > 0 ? List.of("QTY:" + quantity) : normalizedSeats));
     order.setStatus("PENDING"); order.setAmountMinor(info.priceMinor() * Math.max(quantity, normalizedSeats.size()));
     order.setExpireAt(expiryDeadline());
-    try { orders.insert(order); } catch (DuplicateKeyException duplicate) { return findByIdempotencyKey(idempotencyKey).orElseThrow(() -> duplicate); }
+    scheduleTimeout(order);
+    try {
+      orders.insert(order);
+    } catch (DuplicateKeyException duplicate) {
+      removeTimeout(reservationId);
+      return findByIdempotencyKey(idempotencyKey).orElseThrow(() -> duplicate);
+    }
     TicketOrderEntity created = orders.selectById(reservationId);
     outbox.write(EventTypes.ORDER_CREATED, reservationId,
         new OrderCreatedPayload(created.getId(), created.getUserId(), created.getSessionId(), created.getSeatIds(),
             created.getStatus(), created.getAmountMinor(), created.getCreatedAt()));
-    if (timeoutOutbox != null) timeoutOutbox.write(created.getId(), created.getExpireAt());
     return created;
+  }
+
+  private void scheduleTimeout(TicketOrderEntity order) {
+    if (timeoutZset != null) timeoutZset.schedule(order.getId(), order.getExpireAt());
+    else if (timeoutOutbox != null) timeoutOutbox.write(order.getId(), order.getExpireAt());
+  }
+
+  private void removeTimeout(String orderId) {
+    if (timeoutZset != null) timeoutZset.remove(orderId);
+  }
+
+  private void promoteInventory(String orderId) {
+    if (inventory == null) return;
+    try {
+      inventory.promote(orderId);
+    } catch (RuntimeException ignored) {
+      // ORDER_CREATED is durable; the inventory consumer retries promotion after a crash.
+    }
   }
 
   private static void requireOnSale(ActivitySessionClient.SessionInfo info) {

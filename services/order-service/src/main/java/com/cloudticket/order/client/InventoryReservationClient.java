@@ -49,6 +49,10 @@ public class InventoryReservationClient {
     internal.post(baseUrl, "/api/internal/inventory/locks/{orderId}/release", null, orderId);
   }
 
+  public void promote(String orderId) {
+    internal.post(baseUrl, "/api/internal/inventory/locks/{orderId}/promote", null, orderId);
+  }
+
   public void confirm(String orderId) {
     internal.post(baseUrl, "/api/internal/inventory/locks/{orderId}/confirm", null, orderId);
   }

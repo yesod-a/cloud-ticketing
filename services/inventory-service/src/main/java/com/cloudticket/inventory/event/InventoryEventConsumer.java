@@ -75,7 +75,9 @@ public class InventoryEventConsumer {
 
     var queued = queuedRecords == null ? java.util.Optional.<com.cloudticket.inventory.persistence.entity.InventoryReservationEntity>empty()
         : queuedRecords.find(orderId);
-    if (EventTypes.PAYMENT_SUCCEEDED.equals(eventType)) {
+    if (EventTypes.ORDER_CREATED.equals(eventType)) {
+      reservations.promote(orderId);
+    } else if (EventTypes.PAYMENT_SUCCEEDED.equals(eventType)) {
       reservations.confirm(orderId);
       queued.ifPresent(row -> confirmQueued(row));
     } else {
@@ -101,6 +103,7 @@ public class InventoryEventConsumer {
 
   private static boolean supported(String eventType) {
     return EventTypes.PAYMENT_SUCCEEDED.equals(eventType)
+        || EventTypes.ORDER_CREATED.equals(eventType)
         || EventTypes.ORDER_CANCELLED.equals(eventType)
         || EventTypes.ORDER_EXPIRED.equals(eventType)
         || EventTypes.ORDER_REFUNDED.equals(eventType);

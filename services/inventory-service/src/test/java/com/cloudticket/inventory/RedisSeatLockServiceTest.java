@@ -35,7 +35,7 @@ class RedisSeatLockServiceTest {
             "cloudticket:inventory:{session-1}:disabled",
             "cloudticket:inventory:{session-1}:hold:4",
             "cloudticket:inventory:{session-1}:hold:8")),
-        org.mockito.ArgumentMatchers.eq(new Object[] {"order-1:session-1", "60000", "4", "8"}));
+        org.mockito.ArgumentMatchers.eq(new Object[] {"order-1:session-1:PREPARED", "30000", "4", "8"}));
   }
 
   @Test
@@ -74,5 +74,34 @@ class RedisSeatLockServiceTest {
     verify(redis).execute(any(RedisScript.class),
         org.mockito.ArgumentMatchers.argThat(keys -> keys.get(1).endsWith(":sold")),
         any(Object[].class));
+  }
+
+  @Test
+  void prepareUsesShortLivedPreparedToken() {
+    when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(1L);
+    var service = new RedisSeatLockService(redis, true);
+
+    assertTrue(service.prepareIndexed("order-1", "session-1", List.of(4), 900));
+
+    verify(redis).execute(any(RedisScript.class),
+        org.mockito.ArgumentMatchers.eq(List.of(
+            "cloudticket:inventory:{session-1}:ready",
+            "cloudticket:inventory:{session-1}:sold",
+            "cloudticket:inventory:{session-1}:locked",
+            "cloudticket:inventory:{session-1}:disabled",
+            "cloudticket:inventory:{session-1}:hold:4")),
+        org.mockito.ArgumentMatchers.eq(new Object[] {"order-1:session-1:PREPARED", "30000", "4"}));
+  }
+
+  @Test
+  void promoteChangesOnlyOwnedPreparedHoldsToActive() {
+    when(redis.execute(any(RedisScript.class), anyList(), any(Object[].class))).thenReturn(1L);
+    var service = new RedisSeatLockService(redis, true);
+
+    assertTrue(service.promoteIndexed("order-1", "session-1", List.of(4), 900));
+
+    verify(redis).execute(any(RedisScript.class),
+        org.mockito.ArgumentMatchers.eq(List.of("cloudticket:inventory:{session-1}:hold:4")),
+        org.mockito.ArgumentMatchers.eq(new Object[] {"order-1:session-1", "900000"}));
   }
 }

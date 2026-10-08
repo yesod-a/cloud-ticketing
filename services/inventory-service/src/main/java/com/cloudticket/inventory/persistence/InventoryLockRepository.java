@@ -13,6 +13,7 @@ import org.springframework.stereotype.Repository;
 public class InventoryLockRepository {
 
   public static final int ACTIVE = 1;
+  public static final String PREPARED = "PREPARED";
   public static final String ACTIVE_STATUS = "ACTIVE";
   public static final String RELEASED = "RELEASED";
   public static final String CONFIRMED = "CONFIRMED";
@@ -45,23 +46,39 @@ public class InventoryLockRepository {
   }
 
   public void hold(String orderId, String sessionId, String seatId, Instant expiresAt) {
+    hold(orderId, sessionId, seatId, expiresAt, ACTIVE_STATUS);
+  }
+
+  public void holdPrepared(String orderId, String sessionId, String seatId, Instant expiresAt) {
+    hold(orderId, sessionId, seatId, expiresAt, PREPARED);
+  }
+
+  private void hold(String orderId, String sessionId, String seatId, Instant expiresAt, String status) {
     InventoryLockEntity lock = new InventoryLockEntity();
     lock.setId(UUID.randomUUID().toString());
     lock.setOrderId(orderId);
     lock.setSessionId(sessionId);
     lock.setSeatId(seatId);
     lock.setActive(ACTIVE);
-    lock.setStatus(ACTIVE_STATUS);
+    lock.setStatus(status);
     lock.setExpiresAt(expiresAt);
     locks.insert(lock);
   }
 
   public void holdBatch(String orderId, String sessionId, List<String> seatIds, Instant expiresAt) {
+    holdBatch(orderId, sessionId, seatIds, expiresAt, ACTIVE_STATUS);
+  }
+
+  public void holdPreparedBatch(String orderId, String sessionId, List<String> seatIds, Instant expiresAt) {
+    holdBatch(orderId, sessionId, seatIds, expiresAt, PREPARED);
+  }
+
+  private void holdBatch(String orderId, String sessionId, List<String> seatIds, Instant expiresAt, String status) {
     if (seatIds == null || seatIds.isEmpty()) return;
     List<InventoryLockEntity> rows = seatIds.stream().map(seatId -> {
       InventoryLockEntity lock = new InventoryLockEntity();
       lock.setId(UUID.randomUUID().toString()); lock.setOrderId(orderId); lock.setSessionId(sessionId);
-      lock.setSeatId(seatId); lock.setActive(ACTIVE); lock.setStatus(ACTIVE_STATUS); lock.setExpiresAt(expiresAt);
+      lock.setSeatId(seatId); lock.setActive(ACTIVE); lock.setStatus(status); lock.setExpiresAt(expiresAt);
       return lock;
     }).toList();
     locks.insertBatch(rows);
@@ -70,6 +87,10 @@ public class InventoryLockRepository {
   /** @return how many active locks were retired */
   public int retireActive(String orderId, String status) {
     return locks.retireActive(orderId, status);
+  }
+
+  public int promotePrepared(String orderId, Instant expiresAt) {
+    return locks.promotePrepared(orderId, expiresAt);
   }
 
   public List<String> expiredOrderIds() {

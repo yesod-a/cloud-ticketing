@@ -67,4 +67,15 @@ class InventoryReadServiceTest {
 
     verify(seats, never()).listBySession("session-1");
   }
+
+  @Test
+  void ensureReadyDoesNotFallBackToMysqlWhenRebuildLeaseIsOwnedElsewhere() {
+    when(projection.readReady("session-1")).thenReturn(Optional.empty());
+    when(redis.opsForValue()).thenReturn(values);
+    when(values.setIfAbsent(any(), eq("session-1"), any(Duration.class))).thenReturn(false);
+
+    org.junit.jupiter.api.Assertions.assertFalse(service.ensureReady("session-1"));
+
+    verify(seats, never()).listBySession("session-1");
+  }
 }

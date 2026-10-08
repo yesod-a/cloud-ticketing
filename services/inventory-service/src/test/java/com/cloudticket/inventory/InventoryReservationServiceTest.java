@@ -135,14 +135,14 @@ class InventoryReservationServiceTest {
     when(locks.activeSeatIds("order-1")).thenReturn(List.of());
     when(seats.indexes("session-1", List.of("seat-1", "seat-2")))
         .thenReturn(java.util.Map.of("seat-1", 1, "seat-2", 2));
-    when(redisLocks.reserveIndexed("order-1", "session-1", List.of(1, 2), 900)).thenReturn(true);
+    when(redisLocks.prepareIndexed("order-1", "session-1", List.of(1, 2), 900)).thenReturn(true);
     when(seats.lock("session-1", List.of("seat-1", "seat-2"))).thenReturn(1);
     var redisService = new InventoryReservationService(seats, locks, null, redisLocks);
 
     assertThrows(InventoryReservationService.SeatsUnavailableException.class,
         () -> redisService.reserve("order-1", "session-1", List.of("seat-1", "seat-2"), 900));
     verify(redisLocks).releaseIndexed("order-1", "session-1", List.of(1, 2));
-    verify(locks, never()).hold(anyString(), anyString(), anyString(), any());
+    verify(locks, never()).holdPrepared(anyString(), anyString(), anyString(), any());
   }
 
   @Test
@@ -153,11 +153,43 @@ class InventoryReservationServiceTest {
     when(locks.activeSeatIds("order-1")).thenReturn(List.of());
     when(seats.indexes("session-1", List.of("seat-1")))
         .thenReturn(java.util.Map.of("seat-1", 1));
-    when(redisLocks.reserveIndexed("order-1", "session-1", List.of(1), 900)).thenReturn(false);
+    when(redisLocks.prepareIndexed("order-1", "session-1", List.of(1), 900)).thenReturn(false);
     var redisService = new InventoryReservationService(seats, locks, null, redisLocks);
 
     assertThrows(InventoryReservationService.SeatsUnavailableException.class,
         () -> redisService.reserve("order-1", "session-1", List.of("seat-1"), 900));
     verify(seats, never()).lock(anyString(), any());
+  }
+
+  @Test
+  void redisNotReadyFailsClosedWithoutFallingBackToMysql() {
+    RedisSeatLockService redisLocks = mock(RedisSeatLockService.class);
+    when(redisLocks.isEnabled()).thenReturn(true);
+    when(redisLocks.isReady("session-1")).thenReturn(false);
+    when(locks.activeSeatIds("order-1")).thenReturn(List.of());
+    var redisService = new InventoryReservationService(seats, locks, null, redisLocks);
+
+    assertThrows(InventoryReservationService.SeatsUnavailableException.class,
+        () -> redisService.reserve("order-1", "session-1", List.of("seat-1"), 900));
+    verify(seats, never()).indexes(anyString(), any());
+    verify(seats, never()).lock(anyString(), any());
+  }
+
+  @Test
+  void successfulRedisReservationPersistsPreparedLockWithShortExpiry() {
+    RedisSeatLockService redisLocks = mock(RedisSeatLockService.class);
+    when(redisLocks.isEnabled()).thenReturn(true);
+    when(redisLocks.isReady("session-1")).thenReturn(true);
+    when(locks.activeSeatIds("order-1")).thenReturn(List.of());
+    when(seats.indexes("session-1", List.of("seat-1")))
+        .thenReturn(java.util.Map.of("seat-1", 1));
+    when(redisLocks.prepareIndexed("order-1", "session-1", List.of(1), 900)).thenReturn(true);
+    when(seats.lock("session-1", List.of("seat-1"))).thenReturn(1);
+    var redisService = new InventoryReservationService(seats, locks, null, redisLocks);
+
+    redisService.reserve("order-1", "session-1", List.of("seat-1"), 900);
+
+    verify(locks).holdPrepared(eq("order-1"), eq("session-1"), eq("seat-1"),
+        org.mockito.ArgumentMatchers.argThat(value -> value.isBefore(Instant.now().plusSeconds(40))));
   }
 }

@@ -6,11 +6,13 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 /** Publishes durable timeout rows into the Redis scheduling index. */
 @Component
+@ConditionalOnProperty(prefix = "cloudticket.order-timeout", name = "outbox-recovery-enabled", havingValue = "true")
 public class OrderTimeoutOutboxPublisher {
   private static final Logger log = LoggerFactory.getLogger(OrderTimeoutOutboxPublisher.class);
   private final OrderTimeoutOutboxMapper rows;

@@ -29,6 +29,12 @@ public class OrderTimeoutZsetService {
     redis.opsForZSet().remove(PROCESSING_KEY, orderId);
   }
 
+  /** Removes a task regardless of whether it is still pending or currently leased. */
+  public void remove(String orderId) {
+    redis.opsForZSet().remove(PENDING_KEY, orderId);
+    redis.opsForZSet().remove(PROCESSING_KEY, orderId);
+  }
+
   public List<String> claimDue(int limit, long nowMillis, long leaseUntilMillis) {
     List<?> result = redis.execute(CLAIM_SCRIPT, List.of(PENDING_KEY, PROCESSING_KEY),
         Long.toString(nowMillis), Integer.toString(Math.max(1, limit)), Long.toString(leaseUntilMillis));

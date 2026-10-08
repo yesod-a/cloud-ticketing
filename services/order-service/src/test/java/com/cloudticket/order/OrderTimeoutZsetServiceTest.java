@@ -41,4 +41,15 @@ class OrderTimeoutZsetServiceTest {
 
     assertEquals(List.of("order-1"), service.claimDue(10, 1234L, 5000L));
   }
+
+  @Test
+  void removesAnOrphanTimeoutTaskFromBothQueues() {
+    StringRedisTemplate redis = mock(StringRedisTemplate.class);
+    var zsets = mock(org.springframework.data.redis.core.ZSetOperations.class);
+    when(redis.opsForZSet()).thenReturn(zsets);
+    new OrderTimeoutZsetService(redis).remove("orphan-1");
+
+    verify(zsets).remove(OrderTimeoutZsetService.PENDING_KEY, "orphan-1");
+    verify(zsets).remove(OrderTimeoutZsetService.PROCESSING_KEY, "orphan-1");
+  }
 }

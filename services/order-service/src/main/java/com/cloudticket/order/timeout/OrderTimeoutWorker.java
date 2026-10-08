@@ -21,14 +21,17 @@ public class OrderTimeoutWorker {
   private final OrderRepository orders;
   private final int batchSize;
   private final long leaseSeconds;
+  private final boolean localFallbackEnabled;
 
   public OrderTimeoutWorker(OrderTimeoutZsetService timeouts, OrderRepository orders,
       @Value("${cloudticket.order-timeout.batch-size:100}") int batchSize,
-      @Value("${cloudticket.order-timeout.lease-seconds:30}") long leaseSeconds) {
+      @Value("${cloudticket.order-timeout.lease-seconds:30}") long leaseSeconds,
+      @Value("${cloudticket.order-timeout.local-fallback-enabled:false}") boolean localFallbackEnabled) {
     this.timeouts = timeouts;
     this.orders = orders;
     this.batchSize = Math.max(1, Math.min(1000, batchSize));
     this.leaseSeconds = Math.max(5, leaseSeconds);
+    this.localFallbackEnabled = localFallbackEnabled;
   }
 
   @XxlJob("orderTimeoutJobHandler")
@@ -37,7 +40,7 @@ public class OrderTimeoutWorker {
   }
 
   @Scheduled(fixedDelayString = "${cloudticket.order-timeout.poll-ms:30000}")
-  public void scheduledFallback() { processDue(batchSize); }
+  public void scheduledFallback() { if (localFallbackEnabled) processDue(batchSize); }
 
   public int processDue(int limit) {
     long now = System.currentTimeMillis();
@@ -63,7 +66,7 @@ public class OrderTimeoutWorker {
   }
 
   @Scheduled(fixedDelayString = "${cloudticket.order-timeout.rebuild-poll-ms:300000}")
-  public void rebuildFallback() { rebuild(batchSize); }
+  public void rebuildFallback() { if (localFallbackEnabled) rebuild(batchSize); }
 
   public int rebuild(int limit) {
     List<TicketOrderEntity> pending = orders.findPendingForTimeoutRebuild(limit);

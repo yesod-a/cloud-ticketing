@@ -42,7 +42,7 @@ cloudticket:
     send-timeout-ms: ${ORDER_OUTBOX_SEND_TIMEOUT_MS:1000}
     lease-seconds: ${ORDER_OUTBOX_LEASE_SECONDS:30}
   order-expiry:
-    enabled: ${ORDER_EXPIRY_ENABLED:true}
+    enabled: ${ORDER_EXPIRY_ENABLED:false}
     payment-window-minutes: ${ORDER_PAYMENT_WINDOW_MINUTES:15}
     poll-ms: ${ORDER_EXPIRY_POLL_MS:300000}
   order-timeout:
@@ -50,6 +50,8 @@ cloudticket:
     lease-seconds: ${ORDER_TIMEOUT_LEASE_SECONDS:30}
     poll-ms: ${ORDER_TIMEOUT_POLL_MS:30000}
     rebuild-poll-ms: ${ORDER_TIMEOUT_REBUILD_POLL_MS:300000}
+    local-fallback-enabled: ${ORDER_TIMEOUT_LOCAL_FALLBACK_ENABLED:false}
+    outbox-recovery-enabled: ${ORDER_TIMEOUT_OUTBOX_RECOVERY_ENABLED:false}
     outbox-poll-ms: ${ORDER_TIMEOUT_OUTBOX_POLL_MS:1000}
     outbox-batch-size: ${ORDER_TIMEOUT_OUTBOX_BATCH_SIZE:100}
 xxl:

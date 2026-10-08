@@ -51,6 +51,16 @@ class PaymentServiceTest {
   }
 
   @Test
+  void intentRejectsPendingOrderPastItsDurableExpiry() {
+    TicketOrderEntity expired = order("PENDING");
+    expired.setExpireAt(Instant.parse("2026-09-16T00:00:00Z"));
+    when(store.findOrder("order-1")).thenReturn(Optional.of(expired));
+
+    assertThrows(IllegalStateException.class, () -> service().intent("order-1", "user-1", "WECHAT"));
+    verify(store, never()).upsertIntent(anyString(), anyString(), anyString(), anyInt(), anyString());
+  }
+
+  @Test
   void intentRejectsAnotherUsersOrder() {
     when(store.findOrder("order-1")).thenReturn(Optional.of(order("PENDING")));
 

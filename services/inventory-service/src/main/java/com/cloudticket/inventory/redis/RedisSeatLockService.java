@@ -24,6 +24,7 @@ public class RedisSeatLockService {
   private static final String PREFIX = "cloudticket:inventory:";
   private static final RedisScript<Long> LOCK_SCRIPT = script("redis/lock-seats.lua");
   private static final RedisScript<Long> RELEASE_SCRIPT = script("redis/release-seats.lua");
+  private static final RedisScript<Long> PROMOTE_SCRIPT = script("redis/promote-seats.lua");
 
   private final StringRedisTemplate redis;
   private final boolean enabled;
@@ -58,21 +59,28 @@ public class RedisSeatLockService {
   }
 
   public boolean reserveIndexed(String orderId, String sessionId, List<Integer> seatIndexes, long ttlSeconds) {
+    return prepareIndexed(orderId, sessionId, seatIndexes, ttlSeconds);
+  }
+
+  /** Acquires the short-lived Redis part of the two-phase reservation protocol. */
+  public boolean prepareIndexed(String orderId, String sessionId, List<Integer> seatIndexes, long ignoredTtlSeconds) {
     if (!isEnabled()) return true;
     if (!isReady(sessionId)) return false;
-    List<String> keys = new java.util.ArrayList<>();
-    String tag = SeatBitmapProjection.tag(sessionId);
-    keys.add(readyKey(tag));
-    keys.add(bitmapKey(tag, "sold"));
-    keys.add(bitmapKey(tag, "locked"));
-    keys.add(bitmapKey(tag, "disabled"));
-    keys.addAll(seatIndexes.stream().map(index -> key(sessionId, Integer.toString(index))).toList());
-    long ttlMillis = Math.max(1_000L, Math.min(ttlSeconds, 1_800L) * 1_000L);
+    List<String> keys = gateKeys(sessionId, seatIndexes);
     List<String> args = new java.util.ArrayList<>();
-    args.add(token(orderId, sessionId));
-    args.add(Long.toString(ttlMillis));
+    args.add(token(orderId, sessionId, "PREPARED"));
+    args.add("30000");
     args.addAll(seatIndexes.stream().map(String::valueOf).toList());
     Long result = redis.execute(LOCK_SCRIPT, keys, args.toArray(String[]::new));
+    return Long.valueOf(1L).equals(result);
+  }
+
+  /** Extends prepared holds only after the MySQL order row exists. */
+  public boolean promoteIndexed(String orderId, String sessionId, List<Integer> seatIndexes, long ttlSeconds) {
+    if (!isEnabled()) return true;
+    long ttlMillis = Math.max(1_000L, Math.min(ttlSeconds, 1_800L) * 1_000L);
+    List<String> keys = seatIndexes.stream().map(index -> key(sessionId, Integer.toString(index))).toList();
+    Long result = redis.execute(PROMOTE_SCRIPT, keys, token(orderId, sessionId), Long.toString(ttlMillis));
     return Long.valueOf(1L).equals(result);
   }
 
@@ -136,6 +144,21 @@ public class RedisSeatLockService {
 
   public static String token(String orderId, String sessionId) {
     return orderId + ":" + sessionId;
+  }
+
+  public static String token(String orderId, String sessionId, String phase) {
+    return token(orderId, sessionId) + ":" + phase;
+  }
+
+  private List<String> gateKeys(String sessionId, List<Integer> seatIndexes) {
+    String tag = SeatBitmapProjection.tag(sessionId);
+    List<String> keys = new java.util.ArrayList<>();
+    keys.add(readyKey(tag));
+    keys.add(bitmapKey(tag, "sold"));
+    keys.add(bitmapKey(tag, "locked"));
+    keys.add(bitmapKey(tag, "disabled"));
+    keys.addAll(seatIndexes.stream().map(index -> key(sessionId, Integer.toString(index))).toList());
+    return keys;
   }
 
   private static String bitmapKey(String tag, String name) { return PREFIX + tag + ":" + name; }

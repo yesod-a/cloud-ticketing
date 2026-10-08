@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 public class InventoryReservationService {
 
   private static final long MAX_TTL_SECONDS = 1800;
+  private static final long PREPARED_TTL_SECONDS = 30;
 
   private final InventorySeatRepository seats;
   private final InventoryLockRepository locks;
@@ -76,19 +77,31 @@ public class InventoryReservationService {
     }
     boolean redisHeld = false;
     Map<String, Integer> seatIndexes = Map.of();
-    if (redisLocks != null && redisLocks.isEnabled() && redisLocks.isReady(sessionId)) {
+    boolean redisEnabled = redisLocks != null && redisLocks.isEnabled();
+    if (redisEnabled && !redisLocks.isReady(sessionId)) {
+      // A missing projection is not evidence that a seat is available. Fail closed instead of
+      // turning a cache outage into a MySQL read/write stampede.
+      throw new SeatsUnavailableException("inventory projection is warming");
+    }
+    if (redisEnabled) {
       seatIndexes = seats.indexes(sessionId, seatIds);
       if (seatIndexes.size() != seatIds.size()) throw new SeatsUnavailableException();
-      redisHeld = redisLocks.reserveIndexed(orderId, sessionId, seatIds.stream().map(seatIndexes::get).toList(), ttlSeconds);
+      redisHeld = redisLocks.prepareIndexed(orderId, sessionId,
+          seatIds.stream().map(seatIndexes::get).toList(), ttlSeconds);
       if (!redisHeld) throw new SeatsUnavailableException();
     }
     try {
       if (seats.lock(sessionId, seatIds) != seatIds.size()) throw new SeatsUnavailableException();
 
       long ttl = Math.max(1, Math.min(ttlSeconds, MAX_TTL_SECONDS));
-      Instant expiresAt = Instant.now().plusSeconds(ttl);
-      seatIds.forEach(seatId -> locks.hold(orderId, sessionId, seatId, expiresAt));
-      invalidate(List.of(sessionId));
+      long durableTtl = redisEnabled ? Math.min(ttl, PREPARED_TTL_SECONDS) : ttl;
+      Instant expiresAt = Instant.now().plusSeconds(durableTtl);
+      if (redisEnabled) {
+        seatIds.forEach(seatId -> locks.holdPrepared(orderId, sessionId, seatId, expiresAt));
+      } else {
+        seatIds.forEach(seatId -> locks.hold(orderId, sessionId, seatId, expiresAt));
+      }
+      if (!redisEnabled) invalidate(List.of(sessionId));
       return new Reservation(orderId, sessionId, seatIds, expiresAt);
     } catch (RuntimeException failure) {
       if (redisHeld) {
@@ -99,6 +112,27 @@ public class InventoryReservationService {
     }
   }
 
+  /** Promotes a successful order's short reservation into its payment-window hold. */
+  @Transactional
+  public boolean promote(String orderId) {
+    if (orderId == null || orderId.isBlank()) return false;
+    List<String> sessions = locks.activeSessionIds(orderId);
+    List<String> held = locks.activeSeatIds(orderId);
+    if (held.isEmpty()) return false;
+    Instant expiresAt = Instant.now().plusSeconds(MAX_TTL_SECONDS);
+    locks.promotePrepared(orderId, expiresAt);
+    boolean redisPromoted = true;
+    if (redisLocks != null && redisLocks.isEnabled() && sessions.size() == 1) {
+      Map<String, Integer> indexes = seats.indexes(sessions.get(0), held);
+      if (indexes.size() == held.size()) {
+        redisPromoted = redisLocks.promoteIndexed(orderId, sessions.get(0),
+            held.stream().map(indexes::get).toList(), MAX_TTL_SECONDS);
+      }
+    }
+    if (!redisPromoted) throw new IllegalStateException("unable to promote Redis seat holds");
+    return true;
+  }
+
   @Transactional
   public void release(String orderId) {
     if (orderId == null || orderId.isBlank()) return;
@@ -106,7 +140,7 @@ public class InventoryReservationService {
     List<String> held = locks.activeSeatIds(orderId);
     locks.retireActive(orderId, InventoryLockRepository.RELEASED);
     seats.release(held);
-    invalidate(sessions);
+    if (redisLocks == null || !redisLocks.isEnabled()) invalidate(sessions);
     releaseRedis(orderId, sessions, held);
   }
 
@@ -152,5 +186,6 @@ public class InventoryReservationService {
     public SeatsUnavailableException() {
       super("one or more seats are unavailable");
     }
+    public SeatsUnavailableException(String message) { super(message); }
   }
 }

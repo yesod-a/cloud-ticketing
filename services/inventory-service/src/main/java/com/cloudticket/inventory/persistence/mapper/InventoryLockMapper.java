@@ -27,4 +27,7 @@ public interface InventoryLockMapper extends BaseMapper<InventoryLockEntity> {
    */
   @Update("UPDATE inventory_lock SET active = 0, status = #{status} WHERE order_id = #{orderId} AND active = 1")
   int retireActive(@Param("orderId") String orderId, @Param("status") String status);
+
+  @Update("UPDATE inventory_lock SET status='ACTIVE', expires_at=#{expiresAt} WHERE order_id=#{orderId} AND active=1 AND status='PREPARED'")
+  int promotePrepared(@Param("orderId") String orderId, @Param("expiresAt") java.time.Instant expiresAt);
 }

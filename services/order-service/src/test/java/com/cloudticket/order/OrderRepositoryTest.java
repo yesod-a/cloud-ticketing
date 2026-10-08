@@ -20,6 +20,7 @@ import com.cloudticket.order.persistence.UserSessionPurchaseRepository;
 import com.cloudticket.order.persistence.entity.TicketOrderEntity;
 import com.cloudticket.order.persistence.mapper.TicketOrderMapper;
 import com.cloudticket.order.timeout.OrderTimeoutOutboxWriter;
+import com.cloudticket.order.OrderTimeoutZsetService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -115,6 +116,30 @@ class OrderRepositoryTest {
     InOrder order = org.mockito.Mockito.inOrder(inventory, sessions);
     order.verify(inventory).reserve(anyString(), eq("session-1"), eq(List.of("A1")));
     order.verify(sessions).session("session-1");
+  }
+
+  @Test
+  void createSchedulesTimeoutBeforeInsertAndPromotesInventoryAfterInsert() {
+    OrderTimeoutZsetService zset = mock(OrderTimeoutZsetService.class);
+    OrderRepository zsetRepository = new OrderRepository(orders, inventory, sessions, outbox, zset);
+    when(orders.selectOne(any())).thenReturn(null);
+    when(sessions.session("session-1"))
+        .thenReturn(new ActivitySessionClient.SessionInfo("GRID", 19900, 0, "ONSALE"));
+    TicketOrderEntity[] persisted = new TicketOrderEntity[1];
+    when(orders.insert(any(TicketOrderEntity.class))).thenAnswer(invocation -> {
+      persisted[0] = invocation.getArgument(0);
+      persisted[0].setCreatedAt(java.time.Instant.now());
+      return 1;
+    });
+    when(orders.selectById(anyString())).thenAnswer(invocation -> persisted[0]);
+
+    TicketOrderEntity result = zsetRepository.create("user-1", "session-1", "A1", "idem-zset");
+
+    InOrder order = org.mockito.Mockito.inOrder(inventory, zset, orders);
+    order.verify(inventory).reserve(anyString(), eq("session-1"), eq(List.of("A1")));
+    order.verify(zset).schedule(eq(result.getId()), any(java.time.Instant.class));
+    order.verify(orders).insert(any(TicketOrderEntity.class));
+    verify(inventory).promote(result.getId());
   }
 
   @Test

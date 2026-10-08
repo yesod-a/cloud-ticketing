@@ -40,6 +40,12 @@ public class InternalInventoryLockController {
     return Map.of("orderId", orderId, "status", "RELEASED");
   }
 
+  @PostMapping("/{orderId}/promote")
+  public Map<String, Object> promote(@PathVariable("orderId") String orderId) {
+    reservations.promote(orderId);
+    return Map.of("orderId", orderId, "status", "ACTIVE");
+  }
+
   @PostMapping("/{orderId}/confirm")
   public Map<String, Object> confirm(@PathVariable("orderId") String orderId) {
     int sold = reservations.confirm(orderId);
